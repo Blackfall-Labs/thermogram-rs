@@ -1,0 +1,224 @@
+warning: unused import: `Error`
+ --> src\core.rs:8:20
+  |
+8 | use crate::error::{Error, Result};
+  |                    ^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `PathBuf`
+  --> src\core.rs:14:23
+   |
+14 | use std::path::{Path, PathBuf};
+   |                       ^^^^^^^
+
+warning: unused import: `Error`
+ --> src\consolidation.rs:8:20
+  |
+8 | use crate::error::{Error, Result};
+  |                    ^^^^^
+
+warning: unused import: `Error`
+ --> src\export.rs:7:20
+  |
+7 | use crate::error::{Error, Result};
+  |                    ^^^^^
+
+warning: unused import: `DeltaType`
+ --> src\embedded_snn.rs:6:27
+  |
+6 | use crate::delta::{Delta, DeltaType};
+  |                           ^^^^^^^^^
+
+warning: `thermogram` (lib) generated 5 warnings (run `cargo fix --lib -p thermogram` to apply 5 suggestions)
+   Compiling thermogram v0.1.0 (E:\repos\blackfall-labs\thermogram-rs)
+    Finished `bench` profile [optimized] target(s) in 2.11s
+     Running benches\core_operations.rs (target\release\deps\core_operations-9fb025566ffa5588.exe)
+Gnuplot not found, using plotters backend
+Benchmarking delta_create
+Benchmarking delta_create: Warming up for 3.0000 s
+Benchmarking delta_create: Collecting 100 samples in estimated 5.0030 s (8.1M iterations)
+Benchmarking delta_create: Analyzing
+delta_create            time:   [641.67 ns 660.17 ns 680.55 ns]
+                        change: [-11.159% -7.6533% -4.0795%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+
+Benchmarking delta_append/10
+Benchmarking delta_append/10: Warming up for 3.0000 s
+Benchmarking delta_append/10: Collecting 100 samples in estimated 5.0043 s (212k iterations)
+Benchmarking delta_append/10: Analyzing
+delta_append/10         time:   [3.2766 µs 3.4808 µs 3.6930 µs]
+                        change: [-7.5034% -2.4875% +3.2573%] (p = 0.36 > 0.05)
+                        No change in performance detected.
+Benchmarking delta_append/100
+Benchmarking delta_append/100: Warming up for 3.0000 s
+Benchmarking delta_append/100: Collecting 100 samples in estimated 5.7983 s (25k iterations)
+Benchmarking delta_append/100: Analyzing
+delta_append/100        time:   [15.801 µs 17.052 µs 18.377 µs]
+                        change: [+22.582% +32.290% +42.108%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 2 outliers among 100 measurements (2.00%)
+  2 (2.00%) high mild
+Benchmarking delta_append/1000
+Benchmarking delta_append/1000: Warming up for 3.0000 s
+Benchmarking delta_append/1000: Collecting 100 samples in estimated 5.0246 s (1900 iterations)
+Benchmarking delta_append/1000: Analyzing
+delta_append/1000       time:   [49.734 µs 51.955 µs 54.384 µs]
+                        change: [-1.9972% +5.3375% +13.164%] (p = 0.16 > 0.05)
+                        No change in performance detected.
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high severe
+Benchmarking delta_append/10000
+Benchmarking delta_append/10000: Warming up for 3.0000 s
+Benchmarking delta_append/10000: Collecting 100 samples in estimated 6.6533 s (200 iterations)
+Benchmarking delta_append/10000: Analyzing
+delta_append/10000      time:   [508.14 µs 532.54 µs 558.01 µs]
+                        change: [-3.7858% +2.9762% +9.6856%] (p = 0.39 > 0.05)
+                        No change in performance detected.
+
+Benchmarking hash_verify
+Benchmarking hash_verify: Warming up for 3.0000 s
+Benchmarking hash_verify: Collecting 100 samples in estimated 5.0014 s (14M iterations)
+Benchmarking hash_verify: Analyzing
+hash_verify             time:   [345.39 ns 355.12 ns 365.76 ns]
+                        change: [+17.789% +23.041% +28.497%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+
+Benchmarking consolidation/10
+Benchmarking consolidation/10: Warming up for 3.0000 s
+Benchmarking consolidation/10: Collecting 100 samples in estimated 5.0900 s (227k iterations)
+Benchmarking consolidation/10: Analyzing
+consolidation/10        time:   [2.9643 µs 3.1159 µs 3.2807 µs]
+                        change: [-0.7706% +5.1635% +11.197%] (p = 0.09 > 0.05)
+                        No change in performance detected.
+Benchmarking consolidation/100
+Benchmarking consolidation/100: Warming up for 3.0000 s
+Benchmarking consolidation/100: Collecting 100 samples in estimated 5.3902 s (25k iterations)
+Benchmarking consolidation/100: Analyzing
+consolidation/100       time:   [28.214 µs 29.482 µs 30.691 µs]
+                        change: [-7.3603% -1.7961% +4.1477%] (p = 0.54 > 0.05)
+                        No change in performance detected.
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+Benchmarking consolidation/1000
+Benchmarking consolidation/1000: Warming up for 3.0000 s
+Benchmarking consolidation/1000: Collecting 100 samples in estimated 5.1019 s (2200 iterations)
+Benchmarking consolidation/1000: Analyzing
+consolidation/1000      time:   [16.147 µs 16.610 µs 17.092 µs]
+                        change: [-11.373% -7.4624% -3.3646%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+
+Benchmarking snn_tick/10
+Benchmarking snn_tick/10: Warming up for 3.0000 s
+Benchmarking snn_tick/10: Collecting 100 samples in estimated 5.0145 s (303k iterations)
+Benchmarking snn_tick/10: Analyzing
+snn_tick/10             time:   [14.594 µs 14.752 µs 14.907 µs]
+                        change: [-2.8522% -1.8193% -0.7742%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 9 outliers among 100 measurements (9.00%)
+  8 (8.00%) high mild
+  1 (1.00%) high severe
+Benchmarking snn_tick/50
+Benchmarking snn_tick/50: Warming up for 3.0000 s
+Benchmarking snn_tick/50: Collecting 100 samples in estimated 5.3155 s (71k iterations)
+Benchmarking snn_tick/50: Analyzing
+snn_tick/50             time:   [74.355 µs 74.947 µs 75.536 µs]
+                        change: [-1.4144% -0.3662% +0.7274%] (p = 0.51 > 0.05)
+                        No change in performance detected.
+Found 2 outliers among 100 measurements (2.00%)
+  2 (2.00%) high mild
+Benchmarking snn_tick/100
+Benchmarking snn_tick/100: Warming up for 3.0000 s
+Benchmarking snn_tick/100: Collecting 100 samples in estimated 5.3137 s (35k iterations)
+Benchmarking snn_tick/100: Analyzing
+snn_tick/100            time:   [150.27 µs 151.30 µs 152.21 µs]
+                        change: [+0.0447% +1.0262% +2.0353%] (p = 0.05 > 0.05)
+                        No change in performance detected.
+Benchmarking snn_tick/200
+Benchmarking snn_tick/200: Warming up for 3.0000 s
+Benchmarking snn_tick/200: Collecting 100 samples in estimated 6.0467 s (20k iterations)
+Benchmarking snn_tick/200: Analyzing
+snn_tick/200            time:   [297.05 µs 299.56 µs 302.05 µs]
+                        change: [-2.1074% -1.1649% -0.2378%] (p = 0.02 < 0.05)
+                        Change within noise threshold.
+
+Benchmarking read_operations/read_clean/10
+Benchmarking read_operations/read_clean/10: Warming up for 3.0000 s
+Benchmarking read_operations/read_clean/10: Collecting 100 samples in estimated 5.0000 s (280M iterations)
+Benchmarking read_operations/read_clean/10: Analyzing
+read_operations/read_clean/10
+                        time:   [17.211 ns 17.647 ns 18.102 ns]
+Benchmarking read_operations/read_dirty/10
+Benchmarking read_operations/read_dirty/10: Warming up for 3.0000 s
+Benchmarking read_operations/read_dirty/10: Collecting 100 samples in estimated 5.0002 s (87M iterations)
+Benchmarking read_operations/read_dirty/10: Analyzing
+read_operations/read_dirty/10
+                        time:   [55.212 ns 56.642 ns 58.127 ns]
+Found 3 outliers among 100 measurements (3.00%)
+  3 (3.00%) high mild
+Benchmarking read_operations/read_clean/100
+Benchmarking read_operations/read_clean/100: Warming up for 3.0000 s
+Benchmarking read_operations/read_clean/100: Collecting 100 samples in estimated 5.0001 s (83M iterations)
+Benchmarking read_operations/read_clean/100: Analyzing
+read_operations/read_clean/100
+                        time:   [57.571 ns 59.073 ns 60.661 ns]
+Found 4 outliers among 100 measurements (4.00%)
+  4 (4.00%) high mild
+Benchmarking read_operations/read_dirty/100
+Benchmarking read_operations/read_dirty/100: Warming up for 3.0000 s
+Benchmarking read_operations/read_dirty/100: Collecting 100 samples in estimated 5.0000 s (88M iterations)
+Benchmarking read_operations/read_dirty/100: Analyzing
+read_operations/read_dirty/100
+                        time:   [54.744 ns 56.599 ns 58.503 ns]
+Benchmarking read_operations/read_clean/1000
+Benchmarking read_operations/read_clean/1000: Warming up for 3.0000 s
+Benchmarking read_operations/read_clean/1000: Collecting 100 samples in estimated 5.0003 s (84M iterations)
+Benchmarking read_operations/read_clean/1000: Analyzing
+read_operations/read_clean/1000
+                        time:   [54.772 ns 56.376 ns 58.029 ns]
+Found 4 outliers among 100 measurements (4.00%)
+  4 (4.00%) high mild
+Benchmarking read_operations/read_dirty/1000
+Benchmarking read_operations/read_dirty/1000: Warming up for 3.0000 s
+Benchmarking read_operations/read_dirty/1000: Collecting 100 samples in estimated 5.0002 s (89M iterations)
+Benchmarking read_operations/read_dirty/1000: Analyzing
+read_operations/read_dirty/1000
+                        time:   [54.666 ns 56.576 ns 58.672 ns]
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+
+Benchmarking plasticity_rules/stdp
+Benchmarking plasticity_rules/stdp: Warming up for 3.0000 s
+Benchmarking plasticity_rules/stdp: Collecting 100 samples in estimated 5.0000 s (2.8B iterations)
+Benchmarking plasticity_rules/stdp: Analyzing
+plasticity_rules/stdp   time:   [1.7507 ns 1.8132 ns 1.8802 ns]
+Found 4 outliers among 100 measurements (4.00%)
+  4 (4.00%) high mild
+Benchmarking plasticity_rules/ema
+Benchmarking plasticity_rules/ema: Warming up for 3.0000 s
+Benchmarking plasticity_rules/ema: Collecting 100 samples in estimated 5.0000 s (4.4B iterations)
+Benchmarking plasticity_rules/ema: Analyzing
+plasticity_rules/ema    time:   [1.1224 ns 1.1648 ns 1.2101 ns]
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+Benchmarking plasticity_rules/bayesian
+Benchmarking plasticity_rules/bayesian: Warming up for 3.0000 s
+Benchmarking plasticity_rules/bayesian: Collecting 100 samples in estimated 5.0000 s (3.3B iterations)
+Benchmarking plasticity_rules/bayesian: Analyzing
+plasticity_rules/bayesian
+                        time:   [1.4322 ns 1.4866 ns 1.5474 ns]
+Found 4 outliers among 100 measurements (4.00%)
+  4 (4.00%) high mild
+
+Benchmarking neuromod_sync
+Benchmarking neuromod_sync: Warming up for 3.0000 s
+Benchmarking neuromod_sync: Collecting 100 samples in estimated 5.0000 s (1.2B iterations)
+Benchmarking neuromod_sync: Analyzing
+neuromod_sync           time:   [4.0409 ns 4.0653 ns 4.0900 ns]
+

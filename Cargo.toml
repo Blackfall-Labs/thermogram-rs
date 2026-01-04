@@ -46,6 +46,10 @@ engram-export = ["engram"]
 criterion = "0.5"
 tempfile = "3.8"
 
+[[bench]]
+name = "core_operations"
+harness = false
+
 [lib]
 name = "thermogram"
 path = "src/lib.rs"

@@ -5,13 +5,13 @@
 
 use crate::consolidation::{consolidate, ConsolidatedEntry, ConsolidationPolicy, ConsolidationResult};
 use crate::delta::{Delta, DeltaType};
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::hash_chain::HashChain;
 use crate::plasticity::PlasticityRule;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// A Thermogram - plastic memory capsule with dirty/clean states
 #[derive(Debug, Clone, Serialize, Deserialize)]

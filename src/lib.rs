@@ -28,12 +28,21 @@
 //!
 //! ```rust,no_run
 //! use thermogram::{Thermogram, PlasticityRule, Delta};
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! // Create new thermogram for LLM activation clusters
-//! let mut thermo = Thermogram::new("llm_clusters", PlasticityRule::stdp_like())?;
+//! let mut thermo = Thermogram::new("llm_clusters", PlasticityRule::stdp_like());
 //!
 //! // Apply delta (cluster centroid update)
-//! thermo.apply_delta(Delta::update("cluster_0", new_centroid))?;
+//! let new_centroid = vec![0.5_f32; 2048];
+//! let delta = Delta::update(
+//!     "cluster_0",
+//!     bincode::serialize(&new_centroid)?,
+//!     "llm_mining",
+//!     0.8,
+//!     thermo.dirty_chain.head_hash.clone(),
+//! );
+//! thermo.apply_delta(delta)?;
 //!
 //! // Read current state (dirty + clean merged)
 //! let centroid = thermo.read("cluster_0")?;
@@ -41,9 +50,10 @@
 //! // Consolidate (dirty → clean)
 //! thermo.consolidate()?;
 //!
-//! // Export to Engram (immutable archive)
-//! thermo.export_to_engram("llm_knowledge_v1.eng")?;
-//! # Ok::<(), anyhow::Error>(())
+//! // Export to JSON
+//! thermo.export_to_json("llm_knowledge_v1.json")?;
+//! # Ok(())
+//! # }
 //! ```
 
 pub mod core;

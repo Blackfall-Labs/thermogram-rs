@@ -231,7 +231,10 @@ mod tests {
         let hash1 = delta1.hash.clone();
         chain.append(delta1).unwrap();
 
-        let delta2 = Delta::create("key2", b"value2".to_vec(), "source");
+        // Second delta must link to first
+        let mut delta2 = Delta::create("key2", b"value2".to_vec(), "source");
+        delta2.prev_hash = Some(hash1.clone());
+        delta2.hash = delta2.compute_hash();
         let hash2 = delta2.hash.clone();
         chain.append(delta2).unwrap();
 

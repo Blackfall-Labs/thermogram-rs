@@ -5,7 +5,7 @@
 
 use crate::delta::{Delta, DeltaType};
 use crate::plasticity::PlasticityRule;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use chrono::{DateTime, Utc, Duration};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

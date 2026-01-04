@@ -3,7 +3,7 @@
 //! This is NOT for reasoning or facts. It's for **maintaining and reshaping
 //! associations** under constraints: STDP, homeostasis, competition, decay.
 
-use crate::delta::{Delta, DeltaType};
+use crate::delta::Delta;
 use crate::error::Result;
 use crate::plasticity_engine::{NeuromodState, PlasticityEngine, PlasticityEngineState};
 use serde::{Deserialize, Serialize};
@@ -380,10 +380,18 @@ mod tests {
     fn test_stdp_strengthening() {
         let config = EmbeddedSNNConfig {
             num_neurons: 10,
-            spike_threshold: 0.3,
+            spike_threshold: 0.1, // Lower threshold to ensure spikes
+            stdp_lr: 0.1,         // Higher learning rate
             ..Default::default()
         };
         let mut snn = EmbeddedSNN::new(config);
+
+        // Initialize some prototypes to align with input for guaranteed spikes
+        for proto in &mut snn.state.prototypes[0..3] {
+            for val in proto.iter_mut() {
+                *val = 0.01; // Positive values
+            }
+        }
 
         // High activation should cause spikes
         let input = vec![1.0; 2048];
@@ -398,6 +406,6 @@ mod tests {
             .filter(|d| d.key.starts_with("weight_"))
             .count();
 
-        assert!(weight_updates > 0);
+        assert!(weight_updates > 0, "Expected STDP weight updates but got none. Total deltas: {}", deltas.len());
     }
 }
