@@ -427,6 +427,8 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 [[package]]
 name = "engram-rs"
 version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52167cedec0b46beb0d0cad1fd18258babe225874a0f5db94800dffa3cf8bb20"
 dependencies = [
  "aes-gcm",
  "anyhow",

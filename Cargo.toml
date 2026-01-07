@@ -36,11 +36,10 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 rand = "0.8"
 
 # Optional: Engram integration
-engram = { package = "engram-rs", path = "../engram-rs", optional = true }
+engram-rs = "1.0.0"
 
 [features]
 default = []
-engram-export = ["engram"]
 
 [dev-dependencies]
 criterion = "0.5"
