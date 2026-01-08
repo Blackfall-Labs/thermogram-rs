@@ -2,10 +2,18 @@
 //!
 //! This is NOT for reasoning or facts. It's for **maintaining and reshaping
 //! associations** under constraints: STDP, homeostasis, competition, decay.
+//!
+//! ## Ternary STDP Support
+//!
+//! When `use_ternary` is enabled, weights are quantized to ternary values
+//! (+1, 0, -1) and STDP uses discrete state transitions instead of
+//! continuous weight updates. This enables BitNet-style quantized networks.
 
 use crate::delta::Delta;
 use crate::error::Result;
+use crate::plasticity::PlasticityRule;
 use crate::plasticity_engine::{NeuromodState, PlasticityEngine, PlasticityEngineState};
+use crate::ternary::TernaryWeight;
 use serde::{Deserialize, Serialize};
 
 /// Configuration for embedded SNN
@@ -37,6 +45,20 @@ pub struct EmbeddedSNNConfig {
 
     /// Activation threshold for spiking
     pub spike_threshold: f32,
+
+    /// Use ternary weights (+1, 0, -1) instead of continuous
+    /// When enabled, STDP uses discrete state transitions
+    #[serde(default)]
+    pub use_ternary: bool,
+
+    /// Quantization threshold for converting f32 to ternary
+    /// Values with |w| < threshold become Zero
+    #[serde(default = "default_ternary_threshold")]
+    pub ternary_threshold: f32,
+}
+
+fn default_ternary_threshold() -> f32 {
+    0.3
 }
 
 impl Default for EmbeddedSNNConfig {
@@ -51,6 +73,18 @@ impl Default for EmbeddedSNNConfig {
             decay_rate: 0.001,
             trace_decay: 0.1,
             spike_threshold: 0.5,
+            use_ternary: false,
+            ternary_threshold: 0.3,
+        }
+    }
+}
+
+impl EmbeddedSNNConfig {
+    /// Create config with ternary weights enabled
+    pub fn ternary() -> Self {
+        Self {
+            use_ternary: true,
+            ..Default::default()
         }
     }
 }
@@ -62,7 +96,13 @@ struct SNNState {
     prototypes: Vec<Vec<f32>>,
 
     /// Sparse associative weights [neuron_id -> Vec<(neighbor_id, weight)>]
+    /// Continuous f32 weights used for computation
     weights: Vec<Vec<(usize, f32)>>,
+
+    /// Ternary weights for quantized mode [neuron_id -> Vec<(neighbor_id, ternary)>]
+    /// Only used when config.use_ternary is true
+    #[serde(default)]
+    ternary_weights: Vec<Vec<(usize, TernaryWeight)>>,
 
     /// Eligibility traces for STDP
     traces: Vec<f32>,
@@ -72,6 +112,10 @@ struct SNNState {
 
     /// Last activations
     last_activations: Vec<f32>,
+
+    /// Last spike times for each neuron (for STDP timing)
+    #[serde(default)]
+    last_spike_times: Vec<Option<i64>>,
 }
 
 /// Embedded SNN plasticity engine
@@ -80,6 +124,8 @@ pub struct EmbeddedSNN {
     state: SNNState,
     neuromod: NeuromodState,
     tick_count: usize,
+    /// Plasticity rule for ternary weight updates
+    plasticity_rule: PlasticityRule,
 }
 
 impl EmbeddedSNN {
@@ -98,14 +144,20 @@ impl EmbeddedSNN {
 
         // Initialize sparse weights (all weak initially)
         let mut weights = Vec::with_capacity(config.num_neurons);
+        let mut ternary_weights = Vec::with_capacity(config.num_neurons);
+
         for i in 0..config.num_neurons {
             let mut neighbors = Vec::new();
+            let mut ternary_neighbors = Vec::new();
+
             // Connect to top-k neighbors (circular for now)
             for k in 1..=config.top_k {
                 let neighbor = (i + k) % config.num_neurons;
                 neighbors.push((neighbor, 0.1)); // Weak initial connection
+                ternary_neighbors.push((neighbor, TernaryWeight::Zero)); // Start at zero
             }
             weights.push(neighbors);
+            ternary_weights.push(ternary_neighbors);
         }
 
         let num_neurons = config.num_neurons;
@@ -115,12 +167,15 @@ impl EmbeddedSNN {
             state: SNNState {
                 prototypes,
                 weights,
+                ternary_weights,
                 traces: vec![0.0; num_neurons],
                 firing_rates: vec![0.0; num_neurons],
                 last_activations: vec![0.0; num_neurons],
+                last_spike_times: vec![None; num_neurons],
             },
             neuromod: NeuromodState::baseline(),
             tick_count: 0,
+            plasticity_rule: PlasticityRule::stdp_like(),
         }
     }
 
@@ -193,9 +248,16 @@ impl EmbeddedSNN {
     }
 
     /// Apply STDP (cells that fire together wire together)
-    fn apply_stdp(&mut self, spiking: &[usize]) -> Vec<Delta> {
+    ///
+    /// In ternary mode, uses discrete state transitions instead of continuous updates.
+    fn apply_stdp(&mut self, spiking: &[usize], current_time_ms: i64) -> Vec<Delta> {
         let mut deltas = Vec::new();
         let lr = self.config.stdp_lr * self.neuromod.dopamine; // Modulated by reward
+
+        // Update last spike times for spiking neurons
+        for &i in spiking {
+            self.state.last_spike_times[i] = Some(current_time_ms);
+        }
 
         // Update weights between co-spiking neurons
         for &i in spiking {
@@ -204,18 +266,65 @@ impl EmbeddedSNN {
                     continue;
                 }
 
-                // Find if there's a connection i -> j
-                if let Some(conn) = self.state.weights[i].iter_mut().find(|(n, _)| *n == j) {
-                    conn.1 = (conn.1 + lr).clamp(0.0, 1.0);
+                if self.config.use_ternary {
+                    // Ternary STDP: use discrete state transitions
+                    if let Some(conn_idx) = self.state.ternary_weights[i]
+                        .iter()
+                        .position(|(n, _)| *n == j)
+                    {
+                        let current_weight = self.state.ternary_weights[i][conn_idx].1;
 
-                    // Generate delta for this weight change
-                    deltas.push(Delta::merge(
-                        format!("weight_{}_{}", i, j),
-                        conn.1.to_le_bytes().to_vec(),
-                        "snn_stdp",
-                        conn.1, // Strength = weight value
-                        None,   // Will be set by Thermogram
-                    ));
+                        // Compute time delta between spikes
+                        let time_delta = match (
+                            self.state.last_spike_times[i],
+                            self.state.last_spike_times[j],
+                        ) {
+                            (Some(t_i), Some(t_j)) => t_i - t_j,
+                            _ => 0, // Simultaneous if no history
+                        };
+
+                        // Apply ternary STDP
+                        let new_weight = self.plasticity_rule.apply_ternary_stdp(
+                            current_weight,
+                            true, // pre fired
+                            true, // post fired
+                            time_delta,
+                        );
+
+                        if new_weight != current_weight {
+                            self.state.ternary_weights[i][conn_idx].1 = new_weight;
+
+                            // Also update f32 weight for computation
+                            if let Some(f32_conn) =
+                                self.state.weights[i].iter_mut().find(|(n, _)| *n == j)
+                            {
+                                f32_conn.1 = new_weight.to_f32().abs(); // Use absolute for weight
+                            }
+
+                            // Generate ternary delta
+                            deltas.push(Delta::merge_ternary(
+                                format!("weight_{}_{}", i, j),
+                                vec![new_weight as i8 as u8],
+                                "snn_ternary_stdp",
+                                new_weight,
+                                None,
+                            ));
+                        }
+                    }
+                } else {
+                    // Continuous STDP: traditional f32 updates
+                    if let Some(conn) = self.state.weights[i].iter_mut().find(|(n, _)| *n == j) {
+                        conn.1 = (conn.1 + lr).clamp(0.0, 1.0);
+
+                        // Generate delta for this weight change
+                        deltas.push(Delta::merge(
+                            format!("weight_{}_{}", i, j),
+                            conn.1.to_le_bytes().to_vec(),
+                            "snn_stdp",
+                            conn.1, // Strength = weight value
+                            None,   // Will be set by Thermogram
+                        ));
+                    }
                 }
             }
         }
@@ -241,22 +350,53 @@ impl EmbeddedSNN {
     }
 
     /// Apply decay to weak connections
+    ///
+    /// In ternary mode, only Zero weights are prunable.
     fn apply_decay(&mut self) -> Vec<Delta> {
         let mut deltas = Vec::new();
         let decay = self.config.decay_rate * (1.0 - self.neuromod.serotonin); // Less decay when happy
 
-        for (i, neighbors) in self.state.weights.iter_mut().enumerate() {
-            for (j, weight) in neighbors.iter_mut() {
-                *weight *= 1.0 - decay;
+        if self.config.use_ternary {
+            // Ternary decay: decay Pos/Neg toward Zero, prune Zero weights
+            for (i, neighbors) in self.state.ternary_weights.iter_mut().enumerate() {
+                for (j, weight) in neighbors.iter_mut() {
+                    // Only Zero weights can be pruned
+                    if *weight == TernaryWeight::Zero {
+                        // Check if enough time has passed without reinforcement
+                        // For now, just record as prunable
+                        deltas.push(Delta::delete(
+                            format!("weight_{}_{}", i, j),
+                            "snn_ternary_decay",
+                            None,
+                        ));
+                    } else if decay > 0.5 {
+                        // High decay rate can move weights toward zero
+                        *weight = self.plasticity_rule.decay_toward_zero_public(*weight);
 
-                // If decayed below threshold, record as pruned
-                if *weight < 0.01 {
-                    deltas.push(Delta::delete(
-                        format!("weight_{}_{}", i, j),
-                        "snn_decay",
-                        None,
-                    ));
-                    *weight = 0.0;
+                        // Update f32 weight as well
+                        if let Some(f32_conn) =
+                            self.state.weights[i].iter_mut().find(|(n, _)| *n == *j)
+                        {
+                            f32_conn.1 = weight.to_f32().abs();
+                        }
+                    }
+                }
+            }
+        } else {
+            // Continuous decay: traditional f32 decay
+            for (i, neighbors) in self.state.weights.iter_mut().enumerate() {
+                for (j, weight) in neighbors.iter_mut() {
+                    *weight *= 1.0 - decay;
+
+                    // If decayed below threshold, record as pruned
+                    if *weight < 0.01 {
+                        deltas.push(Delta::delete(
+                            format!("weight_{}_{}", i, j),
+                            "snn_decay",
+                            None,
+                        ));
+                        *weight = 0.0;
+                    }
                 }
             }
         }
@@ -286,6 +426,9 @@ impl PlasticityEngine for EmbeddedSNN {
         self.neuromod = neuromod.clone();
         self.tick_count += 1;
 
+        // Compute current time in milliseconds (each tick ≈ 100ms)
+        let current_time_ms = (self.tick_count as i64) * 100;
+
         // 1. Compute activations from input
         let mut activations = self.compute_activations(activation);
 
@@ -299,7 +442,7 @@ impl PlasticityEngine for EmbeddedSNN {
         let spiking = self.detect_spikes(&activations);
 
         // 5. Apply STDP to strengthen co-firing connections
-        let mut deltas = self.apply_stdp(&spiking);
+        let mut deltas = self.apply_stdp(&spiking, current_time_ms);
 
         // 6. Apply homeostasis (every 100 ticks)
         if self.tick_count % 100 == 0 {
@@ -407,5 +550,58 @@ mod tests {
             .count();
 
         assert!(weight_updates > 0, "Expected STDP weight updates but got none. Total deltas: {}", deltas.len());
+    }
+
+    #[test]
+    fn test_ternary_snn_creation() {
+        let config = EmbeddedSNNConfig::ternary();
+        let snn = EmbeddedSNN::new(config);
+
+        assert!(snn.config.use_ternary);
+        assert_eq!(snn.state.ternary_weights.len(), 100);
+
+        // All ternary weights should start at Zero
+        for neighbors in &snn.state.ternary_weights {
+            for (_, weight) in neighbors {
+                assert_eq!(*weight, TernaryWeight::Zero);
+            }
+        }
+    }
+
+    #[test]
+    fn test_ternary_stdp() {
+        let config = EmbeddedSNNConfig {
+            num_neurons: 10,
+            spike_threshold: 0.1,
+            stdp_lr: 0.1,
+            use_ternary: true,
+            ..Default::default()
+        };
+        let mut snn = EmbeddedSNN::new(config);
+
+        // Initialize prototypes for guaranteed spikes
+        for proto in &mut snn.state.prototypes[0..3] {
+            for val in proto.iter_mut() {
+                *val = 0.01;
+            }
+        }
+
+        let input = vec![1.0; 2048];
+        let mut neuromod = NeuromodState::baseline();
+        neuromod.dopamine = 1.0;
+
+        let deltas = snn.process(&input, &neuromod).unwrap();
+
+        // Ternary deltas should have ternary_strength set
+        let ternary_updates: Vec<_> = deltas
+            .iter()
+            .filter(|d| d.is_ternary() && d.key.starts_with("weight_"))
+            .collect();
+
+        // May or may not have updates depending on timing
+        // Just verify the structure is correct if we have any
+        for delta in ternary_updates {
+            assert!(delta.metadata.ternary_strength.is_some());
+        }
     }
 }

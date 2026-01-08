@@ -65,6 +65,7 @@ pub mod export;
 pub mod error;
 pub mod plasticity_engine;
 pub mod embedded_snn;
+pub mod ternary;
 
 // Re-exports
 pub use crate::core::Thermogram;
@@ -75,6 +76,7 @@ pub use crate::hash_chain::HashChain;
 pub use crate::error::{Error, Result};
 pub use crate::plasticity_engine::{NeuromodState, NeuromodSyncConfig, PlasticityEngine};
 pub use crate::embedded_snn::{EmbeddedSNN, EmbeddedSNNConfig};
+pub use crate::ternary::{TernaryWeight, PackedTernary, TernaryLayer};
 
 #[cfg(test)]
 mod tests {

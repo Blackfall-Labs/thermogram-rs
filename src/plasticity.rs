@@ -6,8 +6,19 @@
 //! - Create new memory (novelty threshold exceeded)
 //! - Merge memories (similar patterns detected)
 //! - Prune memories (decay below threshold)
+//!
+//! ## Ternary Plasticity
+//!
+//! For ternary weights (+1, 0, -1), plasticity works via discrete state transitions:
+//! - **Strengthen**: Neg→Zero→Pos
+//! - **Weaken**: Pos→Zero→Neg
+//! - **Prune**: Only Zero weights are prunable
+//!
+//! This enables BitNet-style quantized neural networks with STDP learning.
 
 use serde::{Deserialize, Serialize};
+
+use crate::ternary::TernaryWeight;
 
 /// Plasticity rule governing memory updates
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -169,6 +180,186 @@ impl PlasticityRule {
     /// Should this memory be pruned?
     pub fn should_prune(&self, strength: f32) -> bool {
         strength < self.prune_threshold
+    }
+
+    // =========================================================================
+    // TERNARY PLASTICITY - Discrete state transitions for quantized weights
+    // =========================================================================
+
+    /// Apply ternary update based on policy
+    ///
+    /// For ternary weights, updates happen via discrete state transitions:
+    /// - **Strengthen**: Neg→Zero→Pos (when confident observation agrees)
+    /// - **Weaken**: Pos→Zero→Neg (when confident observation disagrees)
+    /// - **No change**: When confidence is too low
+    ///
+    /// The `confidence` parameter (0.0-1.0) determines transition probability.
+    pub fn apply_ternary_update(
+        &self,
+        current: TernaryWeight,
+        observed: TernaryWeight,
+        confidence: f32,
+    ) -> TernaryWeight {
+        match self.policy {
+            UpdatePolicy::STDP => {
+                // STDP-like: strengthen if agree, weaken if disagree
+                if current == observed {
+                    // Already aligned - reinforce if confident
+                    if confidence > 0.7 {
+                        current.strengthen()
+                    } else {
+                        current
+                    }
+                } else if confidence > 0.5 {
+                    // Disagree with confidence - move toward observed
+                    self.move_toward(current, observed)
+                } else {
+                    // Low confidence - decay toward zero
+                    self.decay_toward_zero(current)
+                }
+            }
+
+            UpdatePolicy::Replace => {
+                // Simple replacement if confident
+                if confidence > 0.5 {
+                    observed
+                } else {
+                    current
+                }
+            }
+
+            UpdatePolicy::EMA => {
+                // EMA doesn't make sense for ternary, use voting instead
+                // If observed != current, flip based on confidence
+                if current == observed {
+                    current
+                } else if confidence > self.learning_rate {
+                    observed
+                } else {
+                    current
+                }
+            }
+
+            UpdatePolicy::Bayesian => {
+                // Bayesian-like: weight by confidence
+                // Higher confidence = more likely to change
+                if confidence > 0.7 {
+                    observed
+                } else if confidence > 0.3 {
+                    // Medium confidence - move toward zero (uncertain)
+                    self.decay_toward_zero(current)
+                } else {
+                    current
+                }
+            }
+
+            UpdatePolicy::WTA => {
+                // Winner-take-all: observed wins if confident
+                if confidence > 0.5 {
+                    observed
+                } else {
+                    current
+                }
+            }
+        }
+    }
+
+    /// Move current weight one step toward target
+    fn move_toward(&self, current: TernaryWeight, target: TernaryWeight) -> TernaryWeight {
+        use TernaryWeight::*;
+        match (current, target) {
+            // Already at target
+            (Pos, Pos) | (Zero, Zero) | (Neg, Neg) => current,
+
+            // Move toward Pos
+            (Zero, Pos) | (Neg, Pos) => current.strengthen(),
+
+            // Move toward Neg
+            (Zero, Neg) | (Pos, Neg) => current.weaken(),
+
+            // Move toward Zero
+            (Pos, Zero) => current.weaken(),
+            (Neg, Zero) => current.strengthen(),
+        }
+    }
+
+    /// Decay weight toward zero (for low-confidence or aging)
+    fn decay_toward_zero(&self, current: TernaryWeight) -> TernaryWeight {
+        match current {
+            TernaryWeight::Pos => TernaryWeight::Zero,
+            TernaryWeight::Neg => TernaryWeight::Zero,
+            TernaryWeight::Zero => TernaryWeight::Zero,
+        }
+    }
+
+    /// Public method to decay weight toward zero
+    /// Used by embedded_snn for ternary weight aging
+    pub fn decay_toward_zero_public(&self, current: TernaryWeight) -> TernaryWeight {
+        self.decay_toward_zero(current)
+    }
+
+    /// Should this ternary weight be pruned?
+    ///
+    /// For ternary weights, only Zero weights are prunable (inactive connections).
+    pub fn should_prune_ternary(&self, weight: TernaryWeight) -> bool {
+        weight == TernaryWeight::Zero
+    }
+
+    /// Apply STDP-style ternary update for co-firing neurons
+    ///
+    /// Pre→Post firing (causal): strengthen connection
+    /// Post→Pre firing (anti-causal): weaken connection
+    pub fn apply_ternary_stdp(
+        &self,
+        current: TernaryWeight,
+        pre_fired: bool,
+        post_fired: bool,
+        time_delta_ms: i64,
+    ) -> TernaryWeight {
+        if pre_fired && post_fired {
+            if time_delta_ms > 0 {
+                // Pre fired before post (causal) - strengthen
+                current.strengthen()
+            } else if time_delta_ms < 0 {
+                // Post fired before pre (anti-causal) - weaken
+                current.weaken()
+            } else {
+                // Simultaneous - slight strengthen (Hebbian)
+                if current == TernaryWeight::Neg {
+                    TernaryWeight::Zero
+                } else {
+                    current
+                }
+            }
+        } else {
+            // No co-firing - no change
+            current
+        }
+    }
+
+    /// Ternary majority voting for merge decisions
+    ///
+    /// Given multiple ternary weights, return the majority value.
+    /// Useful for merging multiple observations.
+    pub fn ternary_majority_vote(weights: &[TernaryWeight]) -> TernaryWeight {
+        let mut pos_count = 0i32;
+        let mut neg_count = 0i32;
+
+        for &w in weights {
+            match w {
+                TernaryWeight::Pos => pos_count += 1,
+                TernaryWeight::Neg => neg_count += 1,
+                TernaryWeight::Zero => {}
+            }
+        }
+
+        if pos_count > neg_count {
+            TernaryWeight::Pos
+        } else if neg_count > pos_count {
+            TernaryWeight::Neg
+        } else {
+            TernaryWeight::Zero
+        }
     }
 }
 

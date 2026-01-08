@@ -2,9 +2,16 @@
 //!
 //! Exports consolidated state to immutable Engram archives without deletion.
 //! Maintains full audit trail by including hash chain.
+//!
+//! ## Ternary Export Support
+//!
+//! Entries can now have ternary strength values (+1, 0, -1) for quantized
+//! neural network weights. The export format includes both f32 and optional
+//! ternary strength for backward compatibility.
 
 use crate::core::Thermogram;
 use crate::error::Result;
+use crate::ternary::TernaryWeight;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -32,8 +39,28 @@ pub struct EngramExport {
 pub struct EngramEntry {
     pub key: String,
     pub value: Vec<u8>,
+    /// Continuous strength (0.0-1.0) for backward compatibility
     pub strength: f32,
+    /// Ternary strength (+1, 0, -1) for quantized weights
+    #[serde(default)]
+    pub ternary_strength: Option<TernaryWeight>,
     pub update_count: usize,
+}
+
+impl EngramEntry {
+    /// Check if this entry uses ternary strength
+    pub fn is_ternary(&self) -> bool {
+        self.ternary_strength.is_some()
+    }
+
+    /// Get effective strength as f32
+    pub fn effective_strength(&self) -> f32 {
+        if let Some(t) = self.ternary_strength {
+            t.to_f32()
+        } else {
+            self.strength
+        }
+    }
 }
 
 /// Delta in exported history
@@ -42,7 +69,11 @@ pub struct EngramDelta {
     pub timestamp: String,
     pub delta_type: String,
     pub key: String,
+    /// Continuous strength for backward compatibility
     pub strength: f32,
+    /// Ternary strength for quantized deltas
+    #[serde(default)]
+    pub ternary_strength: Option<TernaryWeight>,
     pub hash: String,
 }
 
@@ -74,6 +105,7 @@ impl Thermogram {
                 key: entry.key.clone(),
                 value: entry.value.clone(),
                 strength: entry.strength,
+                ternary_strength: entry.ternary_strength,
                 update_count: entry.update_count,
             })
             .collect();
@@ -88,6 +120,7 @@ impl Thermogram {
                 delta_type: format!("{:?}", delta.delta_type),
                 key: delta.key.clone(),
                 strength: delta.metadata.strength,
+                ternary_strength: delta.metadata.ternary_strength,
                 hash: delta.hash.clone(),
             })
             .collect();
