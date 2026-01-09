@@ -1,10 +1,10 @@
 [package]
 name = "thermogram"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 authors = ["Blackfall Labs"]
 license = "MIT OR Apache-2.0"
-description = "Plastic memory capsule with dirty/clean states, rule-governed deltas, and hash-chained auditability"
+description = "Plastic memory capsule with hot/cold tensor states, rule-governed deltas, and hash-chained auditability"
 repository = "https://github.com/blackfall-labs/thermogram-rs"
 keywords = ["memory", "plasticity", "knowledge", "archive", "audit"]
 categories = ["data-structures", "science"]

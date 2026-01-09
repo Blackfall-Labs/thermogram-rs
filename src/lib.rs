@@ -1,6 +1,6 @@
 //! # Thermogram
 //!
-//! A plastic memory capsule with dirty/clean states, rule-governed deltas,
+//! A plastic memory capsule with hot/cold tensor states, rule-governed deltas,
 //! and hash-chained auditability.
 //!
 //! ## Core Concept
@@ -9,13 +9,23 @@
 //! - **Mutable** (databases, files) - fast but no audit trail
 //! - **Immutable** (Engram, Git) - auditable but can't evolve
 //!
-//! Thermogram combines both:
-//! - **Dirty state** (append-only deltas) - fast, mutable, auditable
-//! - **Clean state** (consolidated snapshot) - efficient reads
+//! Thermogram combines both in a single file with dual thermal states:
+//! - **Hot tensors** - High plasticity, volatile, session-local
+//! - **Cold tensors** - Crystallized, stable, personality backbone
+//! - **Delta chain** (append-only) - fast writes with audit trail
 //! - **Plasticity rules** (STDP-like) - when to update vs create new
 //! - **Hash chain** - cryptographic audit trail
-//! - **Consolidation cycles** - dirty → clean on schedule
+//! - **Consolidation** - crystallizes hot → cold, prunes weak entries
+//! - **Warming** - reactivates cold → hot when needed
 //! - **Engram export** - archive without deletion
+//!
+//! ## Thermal States
+//!
+//! Single file, two internal states, bidirectional transitions:
+//! - **Hot**: Fast updates, session-local, high plasticity
+//! - **Cold**: Slow changes, crystallized personality, stable
+//! - Consolidation moves strong hot entries to cold
+//! - Warming moves cold entries back to hot when reactivated
 //!
 //! ## Use Cases
 //!
@@ -23,6 +33,7 @@
 //! 2. **Agent Memory** - Episodic memory with replay and consolidation
 //! 3. **Knowledge Graphs** - Concepts strengthen/weaken over time
 //! 4. **Neural Weights** - Save checkpoints with full training history
+//! 5. **Personality Substrate** - Synaptic weights that define identity
 //!
 //! ## Example
 //!
@@ -44,10 +55,10 @@
 //! );
 //! thermo.apply_delta(delta)?;
 //!
-//! // Read current state (dirty + clean merged)
+//! // Read current state (hot tensors take priority)
 //! let centroid = thermo.read("cluster_0")?;
 //!
-//! // Consolidate (dirty → clean)
+//! // Consolidate (crystallize hot → cold, prune weak)
 //! thermo.consolidate()?;
 //!
 //! // Export to JSON
@@ -68,7 +79,7 @@ pub mod embedded_snn;
 pub mod ternary;
 
 // Re-exports
-pub use crate::core::Thermogram;
+pub use crate::core::{Thermogram, ThermalState, ThermalConfig, CrystallizationResult, ThermogramStats};
 pub use crate::delta::{Delta, DeltaType};
 pub use crate::plasticity::{PlasticityRule, UpdatePolicy};
 pub use crate::consolidation::{ConsolidationPolicy, ConsolidationTrigger};

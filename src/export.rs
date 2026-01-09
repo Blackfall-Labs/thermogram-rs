@@ -94,12 +94,12 @@ impl Thermogram {
     /// This consolidates the Thermogram first, then exports to a format
     /// suitable for Engram archival.
     pub fn export_to_engram_data(&mut self) -> Result<EngramExport> {
-        // Consolidate first to ensure clean state
+        // Consolidate first to ensure state is up to date
         self.consolidate()?;
 
-        // Convert clean state to entries
-        let state: Vec<EngramEntry> = self
-            .clean_state
+        // Convert both hot and cold entries (cold entries are the crystallized state)
+        let mut state: Vec<EngramEntry> = self
+            .cold_entries
             .values()
             .map(|entry| EngramEntry {
                 key: entry.key.clone(),
@@ -109,6 +109,15 @@ impl Thermogram {
                 update_count: entry.update_count,
             })
             .collect();
+
+        // Also include hot entries (session-local, not yet crystallized)
+        state.extend(self.hot_entries.values().map(|entry| EngramEntry {
+            key: entry.key.clone(),
+            value: entry.value.clone(),
+            strength: entry.strength,
+            ternary_strength: entry.ternary_strength,
+            update_count: entry.update_count,
+        }));
 
         // Convert delta history
         let history: Vec<EngramDelta> = self

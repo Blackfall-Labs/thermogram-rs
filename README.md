@@ -4,11 +4,11 @@
 
 Thermogram is a plastic memory capsule that combines:
 
-- **Dirty/Clean dual states** - Fast mutable deltas + consolidated snapshots
+- **Hot/Cold tensor states** - High plasticity session layer + crystallized personality backbone
 - **Embedded SNN plasticity engine** - STDP, homeostasis, competition, decay
 - **Hash-chained audit trail** - Cryptographic verification of all changes
 - **Optional neuromod sync** - Colony-wide chemical balance coordination
-- **Consolidation cycles** - Brain-like sleep/replay
+- **Consolidation cycles** - Crystallize hot → cold, warm cold → hot
 - **Engram export** - Archive to immutable format without deletion
 
 ## The Problem
@@ -22,27 +22,34 @@ Brains don't work like either - they're **plastic with constraints**. Connection
 
 ## The Solution
 
-Thermogram is a **single file** that contains:
+Thermogram is a **single file** with dual thermal states:
 
-1. **Clean state** - Consolidated snapshot (prototypes, weights, indexes)
-2. **Dirty state** - Append-only delta log (hash-chained)
-3. **Plasticity engine** - Small SNN that generates deltas via spiking dynamics
-4. **Neuromodulation** - Optional sync with external chemical balance
+1. **Hot tensors** - High plasticity, volatile, session-local (fast learning)
+2. **Cold tensors** - Crystallized, stable, personality backbone (slow change)
+3. **Delta chain** - Append-only audit log (hash-chained)
+4. **Plasticity engine** - Small SNN that generates deltas via spiking dynamics
+5. **Neuromodulation** - Optional sync with external chemical balance
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │ Thermogram: llm_clusters.thermo                    │
 ├─────────────────────────────────────────────────────┤
-│ Clean State (Consolidated)                         │
+│ Hot Tensors (Session-Local, High Plasticity)       │
+│  ├─ Recent activations [sparse]                    │
+│  ├─ Volatile associations                          │
+│  └─ Fast-updating weights                          │
+├─────────────────────────────────────────────────────┤
+│ Cold Tensors (Crystallized, Stable)                │
 │  ├─ Concept Prototypes [100 x 2048]                │
 │  ├─ Associative Weights (sparse)                   │
-│  └─ Indexes (ANN, routing tables)                  │
+│  └─ Personality backbone                           │
 ├─────────────────────────────────────────────────────┤
-│ Dirty State (Append-Only Deltas)                   │
+│ Delta Chain (Append-Only, Hash-Chained)            │
 │  ├─ DELTA_PROTO(cluster_5, Δvector, lr, evidence)  │
 │  ├─ DELTA_EDGE(12, 34, Δw, stdp, evidence)         │
-│  ├─ DECAY(epoch, params)                           │
-│  └─ ... (hash-chained)                             │
+│  ├─ CRYSTALLIZE(key, hot→cold)                     │
+│  ├─ WARM(key, cold→hot)                            │
+│  └─ ... (hash-chained audit trail)                 │
 ├─────────────────────────────────────────────────────┤
 │ Plasticity Engine (Embedded SNN)                   │
 │  ├─ 100 neurons (spiking)                          │
@@ -228,7 +235,7 @@ See `engineering/` for detailed design rationale:
 
 - **Colony architecture**: Independent organisms with optional chemical sync
 - **Embedded SNN**: Why spiking dynamics instead of backprop
-- **Dual state**: Why dirty/clean instead of single mutable state
+- **Hot/Cold thermal states**: Session plasticity vs crystallized personality
 - **Hash chains**: Why cryptographic audit trail matters
 - **Plasticity rules**: How STDP/homeostasis/competition interact
 

@@ -143,7 +143,7 @@ fn test_consolidation_with_all_weak_entries() {
     let result = thermo.consolidate().unwrap();
 
     assert_eq!(result.entries_pruned, 10);
-    assert_eq!(thermo.clean_state.len(), 0);
+    assert_eq!(thermo.hot_entries.len(), 0);
 }
 
 #[test]
