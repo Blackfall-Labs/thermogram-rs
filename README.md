@@ -1,304 +1,253 @@
-# Thermogram 🧠
+# Thermogram
 
-**Living knowledge files with embedded SNN plasticity**
+**Plastic memory capsules with 4-temperature states and embedded SNN plasticity**
 
-Thermogram is a plastic memory capsule that combines:
+Thermogram is a synaptic storage system that mimics biological memory consolidation:
 
-- **Hot/Cold tensor states** - High plasticity session layer + crystallized personality backbone
-- **Embedded SNN plasticity engine** - STDP, homeostasis, competition, decay
-- **Hash-chained audit trail** - Cryptographic verification of all changes
-- **Optional neuromod sync** - Colony-wide chemical balance coordination
-- **Consolidation cycles** - Crystallize hot → cold, warm cold → hot
-- **Engram export** - Archive to immutable format without deletion
+- **4-Temperature States** - Hot (working) / Warm (session) / Cool (expertise) / Cold (identity)
+- **Bidirectional Flow** - Entries cement forward when reinforced, degrade backward when unused
+- **Embedded SNN** - Runtime plasticity via STDP, homeostasis, competition, decay
+- **Ternary Weights** - Optional BitNet-style quantization (16x compression)
+- **Hash-Chained Audit Trail** - Cryptographic verification of all changes
 
-## The Problem
+## The 4-Temperature Model
 
-Traditional storage is either:
+Biological memory systems don't have binary hot/cold states - they have gradual crystallization with bidirectional flow:
 
-- **Mutable** (databases, files) - Fast but no audit trail, hard to prove integrity
-- **Immutable** (Git, Engram) - Auditable but can't evolve organically
+| Temperature | Analog | Decay Rate | Behavior |
+|-------------|--------|------------|----------|
+| **Hot** | Working memory | Fast (0.1/tick) | Volatile, immediate task, rebuilt on boot |
+| **Warm** | Short-term | Medium (0.01/tick) | Session learning, persists across tasks |
+| **Cool** | Procedural/skill | Slow (0.001/tick) | Expertise, long-term mastery |
+| **Cold** | Core identity | Glacial (0.0001/tick) | Personality backbone, constitutional |
 
-Brains don't work like either - they're **plastic with constraints**. Connections strengthen and weaken based on rules (STDP, homeostasis), not arbitrary writes.
-
-## The Solution
-
-Thermogram is a **single file** with dual thermal states:
-
-1. **Hot tensors** - High plasticity, volatile, session-local (fast learning)
-2. **Cold tensors** - Crystallized, stable, personality backbone (slow change)
-3. **Delta chain** - Append-only audit log (hash-chained)
-4. **Plasticity engine** - Small SNN that generates deltas via spiking dynamics
-5. **Neuromodulation** - Optional sync with external chemical balance
+### Bidirectional Transitions
 
 ```
-┌─────────────────────────────────────────────────────┐
-│ Thermogram: llm_clusters.thermo                    │
-├─────────────────────────────────────────────────────┤
-│ Hot Tensors (Session-Local, High Plasticity)       │
-│  ├─ Recent activations [sparse]                    │
-│  ├─ Volatile associations                          │
-│  └─ Fast-updating weights                          │
-├─────────────────────────────────────────────────────┤
-│ Cold Tensors (Crystallized, Stable)                │
-│  ├─ Concept Prototypes [100 x 2048]                │
-│  ├─ Associative Weights (sparse)                   │
-│  └─ Personality backbone                           │
-├─────────────────────────────────────────────────────┤
-│ Delta Chain (Append-Only, Hash-Chained)            │
-│  ├─ DELTA_PROTO(cluster_5, Δvector, lr, evidence)  │
-│  ├─ DELTA_EDGE(12, 34, Δw, stdp, evidence)         │
-│  ├─ CRYSTALLIZE(key, hot→cold)                     │
-│  ├─ WARM(key, cold→hot)                            │
-│  └─ ... (hash-chained audit trail)                 │
-├─────────────────────────────────────────────────────┤
-│ Plasticity Engine (Embedded SNN)                   │
-│  ├─ 100 neurons (spiking)                          │
-│  ├─ STDP: cells that fire together wire together   │
-│  ├─ Homeostasis: prevent runaway strengthening     │
-│  ├─ Competition: winner-take-most                  │
-│  ├─ Decay: natural forgetting                      │
-│  └─ Gating: context-dependent activation           │
-├─────────────────────────────────────────────────────┤
-│ Neuromodulation (Synced or Independent)            │
-│  ├─ Dopamine: 0.6 (learning rate ↑)                │
-│  ├─ Serotonin: 0.5 (decay rate ←)                  │
-│  ├─ Norepinephrine: 0.4 (competition ↓)            │
-│  └─ Acetylcholine: 0.7 (attention ↑)               │
-└─────────────────────────────────────────────────────┘
+HOT <-> WARM <-> COOL <-> COLD
+ |        |        |        |
+fast    medium   slow    glacial
+decay   decay    decay   decay
 ```
 
-## Colony Architecture
+- **Cement forward**: `reinforce()` strengthens entries, promotes to colder layers
+- **Degrade backward**: `weaken()` or natural decay demotes to hotter layers
+- **Automatic transitions**: `run_thermal_transitions()` handles promotion/demotion based on thresholds
 
-Multiple Thermograms can coexist as **independent organisms** or **sync neuromodulation** for colony-wide coordination:
+## Replacing Safetensors
 
-```
-Astromind (Central)
-  ├─ InnerPilot SNN
-  │   └─ Neuromodulation: {dopamine, serotonin, norepinephrine, acetylcholine}
-  │
-  └─ Thermogram Colony
-      ├─ llm_clusters.thermo        ← syncs neuromod
-      ├─ dialogue_patterns.thermo   ← syncs neuromod
-      ├─ trust_graph.thermo         ← independent
-      └─ code_knowledge.thermo      ← independent
+Thermogram's **cool layer** serves as a drop-in replacement for safetensors checkpoints:
 
-// Dopamine spike in Astromind → all synced Thermograms increase learning rate
-// Stress → all synced Thermograms increase decay, prune weak connections
-```
+| Safetensors | Thermogram Cool Layer |
+|-------------|----------------------|
+| Static checkpoint | Living, evolving weights |
+| Full f32 precision | Optional ternary (16x smaller) |
+| Load/save only | Read/write/reinforce/weaken |
+| No history | Hash-chained audit trail |
+| One state | 4 temperatures with transitions |
 
-## Installation
-
-Add to your `Cargo.toml`:
-
-```toml
-[dependencies]
-thermogram = "0.1"
-```
-
-Or with optional Engram integration:
-
-```toml
-[dependencies]
-thermogram = { version = "0.1", features = ["engram-export"] }
-```
-
-## Usage
-
-### Basic Example
-
+**Migration path:**
 ```rust
-use thermogram::{Thermogram, PlasticityRule, Delta};
+// Load safetensor weights
+let weights: Vec<f32> = load_safetensor("model.safetensors")?;
 
-// Create Thermogram for LLM activation clusters
-let mut thermo = Thermogram::new("llm_clusters", PlasticityRule::stdp_like());
+// Import into thermogram cool layer
+for (key, weight) in weights.iter().enumerate() {
+    let entry = ConsolidatedEntry {
+        key: format!("weight_{}", key),
+        value: bincode::serialize(&weight)?,
+        strength: 0.9,  // High strength = stays in cool
+        ternary_strength: Some(TernaryWeight::from_f32(*weight, 0.3)),
+        updated_at: Utc::now(),
+        update_count: 1,
+    };
+    thermogram.cool_entries.insert(entry.key.clone(), entry);
+}
 
-// Apply delta (e.g., cluster centroid update from LLM mining)
-let new_centroid = vec![0.5_f32; 2048];
-let delta = Delta::update(
-    "cluster_0",
-    bincode::serialize(&new_centroid)?,
-    "llm_mining",
-    0.8, // strength
-    thermo.dirty_chain.head_hash.clone(),
-);
-thermo.apply_delta(delta)?;
-
-// Read current state (dirty + clean merged)
-let cluster = thermo.read("cluster_0")?;
-
-// Manual consolidation (or auto-trigger after N deltas)
-let result = thermo.consolidate()?;
-println!("Consolidated {} entries", result.entries_consolidated);
-
-// Save to disk (hot file)
-thermo.save("data/llm_clusters.thermo")?;
-
-// Export to JSON
-thermo.export_to_json("exports/llm_knowledge_v1.json")?;
+// Now weights can evolve:
+// - Reinforce successful patterns (may promote to cold)
+// - Weaken unused patterns (may demote to warm)
+// - All changes hash-chained and auditable
 ```
 
-### With Embedded SNN Plasticity
+## Embedded SNN - Runtime Plasticity
+
+Each thermogram has an embedded spiking neural network (SNN) that actively shapes connections at runtime. This is NOT dead code - it's the plasticity engine:
+
+### How the SNN Works
 
 ```rust
 use thermogram::{EmbeddedSNN, EmbeddedSNNConfig, NeuromodState, PlasticityEngine};
 
 // Create SNN plasticity engine
-let config = EmbeddedSNNConfig::default(); // 100 neurons
+let config = EmbeddedSNNConfig {
+    num_neurons: 100,        // Concept prototypes
+    input_dim: 2048,         // Activation dimension
+    stdp_lr: 0.01,           // STDP learning rate
+    homeostasis_target: 0.1, // Target firing rate
+    competition_strength: 0.5,
+    decay_rate: 0.001,
+    use_ternary: true,       // Use ternary weights
+    ..Default::default()
+};
 let mut snn = EmbeddedSNN::new(config);
 
-// Process activation from LLM layer
-let activation = vec![0.5; 2048]; // From layer 16 hidden state
-let neuromod = NeuromodState::baseline();
+// Neuromodulation affects plasticity
+let mut neuromod = NeuromodState::baseline();
+neuromod.reward(0.3);  // Dopamine spike -> increases learning rate
 
-// SNN generates deltas via plasticity rules:
-// - STDP strengthens co-firing neurons
-// - Homeostasis prevents runaway
-// - Competition enforces sparsity
-// - Decay prunes weak connections
+// Process activation vector from your model
+let activation = get_layer_activations(); // e.g., from LLM hidden state
 let deltas = snn.process(&activation, &neuromod)?;
 
-// Apply deltas to Thermogram
+// SNN generates deltas based on:
+// - STDP: Cells that fire together wire together
+// - Homeostasis: Prevents runaway strengthening
+// - Competition: Winner-take-most (enforces sparsity)
+// - Decay: Natural forgetting of unused connections
+
+// Apply deltas to thermogram
 for delta in deltas {
-    thermo.apply_delta(delta)?;
+    thermogram.apply_delta(delta)?;
 }
 ```
 
-### Colony with Neuromod Sync
+### Neuromodulation
+
+The SNN's behavior is modulated by four chemical signals:
+
+| Neuromodulator | Effect on Plasticity |
+|----------------|---------------------|
+| **Dopamine** | Learning rate multiplier (reward signal) |
+| **Serotonin** | Decay rate modulation (confidence) |
+| **Norepinephrine** | Competition strength (arousal/attention) |
+| **Acetylcholine** | Gating modulation (focus) |
 
 ```rust
-use thermogram::{EmbeddedSNN, EmbeddedSNNConfig, NeuromodState, NeuromodSyncConfig, PlasticityEngine};
+let mut neuromod = NeuromodState::baseline();
 
-// Central neuromodulation state (from Astromind)
-let mut central_neuromod = NeuromodState::baseline();
+// Reward -> increase dopamine -> faster learning
+neuromod.reward(0.3);
 
-// SNN 1: Full sync with central state
-let config1 = EmbeddedSNNConfig::default();
-let mut snn1 = EmbeddedSNN::new(config1);
+// Stress -> decrease serotonin, increase NE -> faster forgetting, more competition
+neuromod.stress(0.2);
 
-// SNN 2: Independent (sync_rate = 0.0)
-let config2 = EmbeddedSNNConfig::default();
-let mut snn2 = EmbeddedSNN::new(config2);
+// Focus -> increase acetylcholine -> sharper attention gating
+neuromod.focus(0.2);
 
-// Reward signal → increase dopamine
-central_neuromod.reward(0.3);
-
-// Sync to colony
-snn1.sync_neuromod(&central_neuromod); // Picks up dopamine spike
-// snn2 runs independently with NeuromodState::baseline()
-
-// Process activations with synchronized neuromod
-let activation = vec![0.5; 2048];
-let deltas1 = snn1.process(&activation, &central_neuromod)?; // Uses synced state
-let deltas2 = snn2.process(&activation, &NeuromodState::baseline())?; // Independent
+// Natural decay back to baseline
+neuromod.decay(0.1);
 ```
 
-## Key Features
+## Migration: 2-Temperature to 4-Temperature
 
-### 1. Plastic Memory with Audit Trail
+If upgrading from thermogram 0.4.x (hot/cold only):
 
-- Every change is a **rule-governed delta** (not arbitrary overwrites)
-- Hash-chained for tamper evidence
-- Can replay full history to verify integrity
+### Breaking Changes in 0.5.0
 
-### 2. Brain-Like Plasticity
+1. **ThermalState enum** now has 4 variants: `Hot`, `Warm`, `Cool`, `Cold`
+2. **ThermalConfig** fields are now `[f32; 4]` arrays
+3. **New HashMaps**: `warm_entries` and `cool_entries` added to Thermogram
 
-- **STDP**: Cells that fire together wire together
-- **Homeostasis**: Prevent runaway strengthening
-- **Competition**: Winner-take-most (enforces sparsity)
-- **Decay**: Natural forgetting of unused connections
-- **Gating**: Context-dependent activation
+### Automatic Migration
 
-### 3. Hot File Format
+Old thermogram files (with only `hot_entries` and `cold_entries`) load correctly:
+- `warm_entries` and `cool_entries` default to empty `HashMap`
+- Use `#[serde(default)]` for backward compatibility
 
-- Lives on disk as active, processable file
-- Can be opened, processed, consolidated, closed
-- ThermogramManager handles colony lifecycle
-- Automatic consolidation triggers
+### Manual Migration (if needed)
 
-### 4. Scalable Colonies
+```rust
+// Old 2-temp config
+let old_config = ThermalConfig {
+    crystallization_threshold: 0.75,
+    min_observations: 3,
+    prune_threshold: 0.05,
+    allow_warming: true,
+    warming_delta: 0.3,
+};
 
-- Each Thermogram specializes in a domain
-- Independent or synchronized neuromodulation
-- Add new Thermograms without touching existing ones
-- Colony can scale to hundreds of specialized memories
+// New 4-temp config (use defaults and customize)
+let mut new_config = ThermalConfig::default();
+new_config.promotion_thresholds[2] = old_config.crystallization_threshold; // Cool->Cold
+new_config.prune_threshold = old_config.prune_threshold;
 
-### 5. Archive Without Deletion
+// Or use preset configs:
+let config = ThermalConfig::fast_learner();  // Faster promotion, agents
+let config = ThermalConfig::organic();       // Slower, gradual emergence
+```
 
-- Export to Engram (immutable) when saturated
-- Keep full learning history
-- Never lose the "why" and "how"
-- Cold storage for non-active knowledge
+## Installation
 
-## Architecture Decisions
+```toml
+[dependencies]
+thermogram = "0.5"
+```
 
-See `engineering/` for detailed design rationale:
+## Quick Start
 
-- **Colony architecture**: Independent organisms with optional chemical sync
-- **Embedded SNN**: Why spiking dynamics instead of backprop
-- **Hot/Cold thermal states**: Session plasticity vs crystallized personality
-- **Hash chains**: Why cryptographic audit trail matters
-- **Plasticity rules**: How STDP/homeostasis/competition interact
+```rust
+use thermogram::{Thermogram, PlasticityRule, ThermalState};
+
+// Create thermogram
+let mut thermo = Thermogram::new("my_memory", PlasticityRule::stdp_like());
+
+// Apply delta (learning)
+let delta = Delta::update(
+    "concept_1",
+    bincode::serialize(&vec![0.5f32; 384])?,
+    "learning",
+    0.8,
+    thermo.dirty_chain.head_hash.clone(),
+);
+thermo.apply_delta(delta)?;
+
+// Reinforce successful patterns
+thermo.reinforce("concept_1", 0.2)?;
+
+// Run thermal transitions (promotes/demotes based on strength)
+thermo.run_thermal_transitions()?;
+
+// Consolidate (dirty -> clean state)
+thermo.consolidate()?;
+
+// Save
+thermo.save("memory.thermo")?;
+```
 
 ## Performance
 
-**CPU-only, production-ready** ⚡
-
-| Operation         | Time                | Throughput   |
-| ----------------- | ------------------- | ------------ |
-| **Read**          | 17-59ns             | 17M+ ops/sec |
-| **Write (delta)** | 660ns               | 1.5M ops/sec |
-| **Consolidation** | 17µs (1000 deltas)  | 60K/sec      |
-| **SNN tick**      | 151µs (100 neurons) | 6.6K/sec     |
-| **Neuromod sync** | 4ns                 | 244M/sec     |
+| Operation | Time | Throughput |
+|-----------|------|------------|
+| Read | 17-59ns | 17M+ ops/sec |
+| Write (delta) | 660ns | 1.5M ops/sec |
+| Consolidation | 17us (1000 deltas) | 60K/sec |
+| SNN tick | 151us (100 neurons) | 6.6K/sec |
+| Thermal transition | <1ms | 1K+/sec |
 
 - **No GPU required** - Pure Rust, runs anywhere
-- **Low memory** - 1-10MB per Thermogram
-- **Edge-friendly** - Suitable for embedded/offline deployments
+- **Low memory** - 1-10MB per thermogram
+- **Edge-friendly** - Suitable for embedded/offline
 
-See [PERFORMANCE.md](PERFORMANCE.md) for comprehensive benchmarks and scaling analysis.
+## Testing
 
-## Testing & Security
+**77 tests passing**
 
-**60/60 tests passing** ✅
-
-- **36 unit tests** - Core functionality
-- **15 adversarial tests** - Hash tampering, invalid chains, corrupted deltas, fork attacks, NaN/Inf protection
-- **8 concurrency tests** - Thread safety, race conditions, state isolation
-- **1 doc test** - API correctness
-
-**Security verified:**
-
-- ✅ SHA-256 hash-chained audit trail
-- ✅ Tamper detection at every delta link
-- ✅ Fork attack prevention
-- ✅ Corruption detection through hash recomputation
-- ✅ NaN/Inf protection in SNN
-
-See [HARDENING_SUMMARY.md](HARDENING_SUMMARY.md) for complete testing report.
+- Unit tests for all temperature layers
+- Adversarial tests (tampering, corruption, NaN/Inf)
+- Concurrency tests (thread safety, state isolation)
+- Colony and distillation tests
 
 ## Status
 
-**v0.1.0 - Production Ready** 🚀
+**v0.5.0** - 4-Temperature Architecture
 
-- ✅ Core delta/hash chain/consolidation
-- ✅ Embedded SNN with STDP/homeostasis/competition/decay
-- ✅ Neuromodulation with optional sync
-- ✅ Save/load to disk
-- ✅ JSON export
-- ✅ **Comprehensive testing** (60/60 passing)
-- ✅ **Benchmarked** (8 benchmark suites)
-- ✅ **Security verified** (adversarial testing)
-- ✅ **Performance documented** (see PERFORMANCE.md)
-- 🚧 ThermogramManager (colony lifecycle)
-- 🚧 Engram export (requires engram-rs integration)
-- 🚧 Astromind integration (next phase)
-
-## Next Steps
-
-1. **Astromind Integration** - Wire into LLM activation mining pipeline
-2. **ThermogramManager** - Manage colony lifecycle, auto-consolidation triggers
-3. **Engram Export** - Consolidate to immutable archive format
-4. **Real-world testing** - Use for actual LLM knowledge extraction on Qwen-2.5-3B
+- 4-temperature states (hot/warm/cool/cold)
+- Bidirectional thermal transitions
+- Ternary weight support
+- Colony management (split/merge/balance)
+- Distillation (semantic delta sharing)
+- Embedded SNN with neuromodulation
 
 ## License
 

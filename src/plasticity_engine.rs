@@ -3,14 +3,14 @@
 //! The plasticity engine is a small SNN that "stirs" the connections in a Thermogram,
 //! generating deltas based on spiking dynamics, STDP, homeostasis, and competition.
 //!
-//! Each Thermogram has its own embedded SNN, but can optionally sync neuromodulation
-//! from a central Astromind for colony-wide chemical balance.
+//! Each Thermogram has its own embedded SNN with independent neuromodulator state.
+//! Applications can coordinate multiple SNNs by passing shared neuromodulator values.
 
 use crate::delta::Delta;
 use crate::error::Result;
 use serde::{Deserialize, Serialize};
 
-/// Neuromodulator state (can be synced from Astromind or run independently)
+/// Neuromodulator state (can be synced from central coordinator or run independently)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NeuromodState {
     /// Dopamine: reward signal, learning rate modulation (0.0 - 1.0)

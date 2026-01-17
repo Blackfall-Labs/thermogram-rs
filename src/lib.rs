@@ -1,7 +1,7 @@
 //! # Thermogram
 //!
-//! A plastic memory capsule with hot/cold tensor states, rule-governed deltas,
-//! and hash-chained auditability.
+//! A plastic memory capsule with 4-temperature tensor states (hot/warm/cool/cold),
+//! rule-governed deltas, and hash-chained auditability.
 //!
 //! ## Core Concept
 //!
@@ -9,23 +9,38 @@
 //! - **Mutable** (databases, files) - fast but no audit trail
 //! - **Immutable** (Engram, Git) - auditable but can't evolve
 //!
-//! Thermogram combines both in a single file with dual thermal states:
-//! - **Hot tensors** - High plasticity, volatile, session-local
-//! - **Cold tensors** - Crystallized, stable, personality backbone
+//! Thermogram combines both with 4 thermal states that mimic biological memory:
+//!
+//! ## 4-Temperature Model
+//!
+//! | Temperature | Analog | Decay Rate | Behavior |
+//! |-------------|--------|------------|----------|
+//! | **Hot** | Working memory | Fast (0.1/tick) | Volatile, immediate task |
+//! | **Warm** | Short-term | Medium (0.01/tick) | Session learning, persists |
+//! | **Cool** | Procedural/skill | Slow (0.001/tick) | Expertise, long-term |
+//! | **Cold** | Core identity | Glacial (0.0001/tick) | Personality backbone |
+//!
+//! ## Bidirectional Flow
+//!
+//! ```text
+//! HOT ←→ WARM ←→ COOL ←→ COLD
+//!  ↑        ↑        ↑        ↑
+//! fast    medium   slow    glacial
+//! decay   decay    decay   decay
+//! ```
+//!
+//! - **Cement forward**: Reinforcement strengthens, promotes to colder layer
+//! - **Degrade backward**: Lack of use weakens, demotes to hotter layer
+//!
+//! ## Features
+//!
 //! - **Delta chain** (append-only) - fast writes with audit trail
 //! - **Plasticity rules** (STDP-like) - when to update vs create new
 //! - **Hash chain** - cryptographic audit trail
-//! - **Consolidation** - crystallizes hot → cold, prunes weak entries
-//! - **Warming** - reactivates cold → hot when needed
+//! - **Thermal transitions** - automatic promotion/demotion based on strength
+//! - **Colonies** - multiple thermograms per mesh that grow, split, merge
+//! - **Distillation** - share semantic deltas across instances
 //! - **Engram export** - archive without deletion
-//!
-//! ## Thermal States
-//!
-//! Single file, two internal states, bidirectional transitions:
-//! - **Hot**: Fast updates, session-local, high plasticity
-//! - **Cold**: Slow changes, crystallized personality, stable
-//! - Consolidation moves strong hot entries to cold
-//! - Warming moves cold entries back to hot when reactivated
 //!
 //! ## Use Cases
 //!
@@ -77,6 +92,8 @@ pub mod error;
 pub mod plasticity_engine;
 pub mod embedded_snn;
 pub mod ternary;
+pub mod colony;
+pub mod distillation;
 
 // Re-exports
 pub use crate::core::{Thermogram, ThermalState, ThermalConfig, CrystallizationResult, ThermogramStats};
@@ -88,6 +105,11 @@ pub use crate::error::{Error, Result};
 pub use crate::plasticity_engine::{NeuromodState, NeuromodSyncConfig, PlasticityEngine};
 pub use crate::embedded_snn::{EmbeddedSNN, EmbeddedSNNConfig};
 pub use crate::ternary::{TernaryWeight, PackedTernary, TernaryLayer};
+pub use crate::colony::{ThermogramColony, ColonyConfig, ColonyStats, ColonyConsolidationResult};
+pub use crate::distillation::{
+    SemanticDelta, DeltaSource, DeltaBatch, ThermogramSnapshot,
+    DistillationConfig, distill_learning, apply_delta_to_embedding, cosine_similarity,
+};
 
 #[cfg(test)]
 mod tests {

@@ -194,8 +194,8 @@ impl Default for ThermalConfig {
 }
 
 impl ThermalConfig {
-    /// Create config optimized for Servicemen (faster learning)
-    pub fn serviceman() -> Self {
+    /// Create config optimized for fast learners (agents, workers)
+    pub fn fast_learner() -> Self {
         Self {
             decay_rates: [0.05, 0.005, 0.0005, 0.00005],
             promotion_thresholds: [0.5, 0.65, 0.85, 1.0],
@@ -209,8 +209,8 @@ impl ThermalConfig {
         }
     }
 
-    /// Create config optimized for Astrominds (organic emergence)
-    pub fn astromind() -> Self {
+    /// Create config optimized for organic emergence (gradual learning)
+    pub fn organic() -> Self {
         Self {
             decay_rates: [0.1, 0.01, 0.001, 0.0001],
             promotion_thresholds: [0.7, 0.8, 0.95, 1.0],
@@ -343,14 +343,14 @@ impl Thermogram {
         }
     }
 
-    /// Create for Serviceman use (optimized config)
-    pub fn for_serviceman(name: impl Into<String>, plasticity_rule: PlasticityRule) -> Self {
-        Self::with_thermal_config(name, plasticity_rule, ThermalConfig::serviceman())
+    /// Create for fast-learning agents (optimized config)
+    pub fn for_fast_learner(name: impl Into<String>, plasticity_rule: PlasticityRule) -> Self {
+        Self::with_thermal_config(name, plasticity_rule, ThermalConfig::fast_learner())
     }
 
-    /// Create for Astromind use (organic config)
-    pub fn for_astromind(name: impl Into<String>, plasticity_rule: PlasticityRule) -> Self {
-        Self::with_thermal_config(name, plasticity_rule, ThermalConfig::astromind())
+    /// Create for organic/gradual learning (emergence-focused config)
+    pub fn for_organic(name: impl Into<String>, plasticity_rule: PlasticityRule) -> Self {
+        Self::with_thermal_config(name, plasticity_rule, ThermalConfig::organic())
     }
 
     /// Get entries map for a thermal state (immutable)
