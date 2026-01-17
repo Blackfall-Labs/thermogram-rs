@@ -99,7 +99,7 @@ pub mod distillation;
 pub use crate::core::{Thermogram, ThermalState, ThermalConfig, CrystallizationResult, ThermogramStats};
 pub use crate::delta::{Delta, DeltaType};
 pub use crate::plasticity::{PlasticityRule, UpdatePolicy};
-pub use crate::consolidation::{ConsolidationPolicy, ConsolidationTrigger};
+pub use crate::consolidation::{ConsolidationPolicy, ConsolidationTrigger, ConsolidatedEntry, ConsolidationResult};
 pub use crate::hash_chain::HashChain;
 pub use crate::error::{Error, Result};
 pub use crate::plasticity_engine::{NeuromodState, NeuromodSyncConfig, PlasticityEngine};
