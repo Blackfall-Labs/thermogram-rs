@@ -1,15 +1,18 @@
 //! Core Thermogram implementation
 //!
-//! The main Thermogram type combining hot/cold tensor states with hash-chained
+//! The main Thermogram type combining 4-temperature tensor states with hash-chained
 //! deltas and plasticity rules.
 //!
-//! ## Thermal States
+//! ## Thermal States (4-Temperature Model)
 //!
-//! - **Hot tensors**: High plasticity, volatile, session-local. Fast to update.
-//! - **Cold tensors**: Crystallized, stable, personality backbone. Slow to change.
+//! - **Hot**: Working memory, volatile, fast decay (minutes)
+//! - **Warm**: Session learning, medium decay (hours), persists to cartridge
+//! - **Cool**: Expertise/skill memory, slow decay (days), long-term mastery
+//! - **Cold**: Core identity, glacial decay (weeks+), personality backbone
 //!
-//! Consolidation crystallizes hot → cold. Warming moves cold → hot when needed.
-//! Single file, two internal states, bidirectional transitions.
+//! Bidirectional flow:
+//! - Cement forward: reinforcement strengthens, promotes to colder layer
+//! - Degrade backward: lack of use weakens, demotes to hotter layer
 
 use crate::consolidation::{ConsolidatedEntry, ConsolidationPolicy, ConsolidationResult};
 use crate::delta::{Delta, DeltaType};
@@ -21,44 +24,233 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Thermal state of a tensor entry
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// Thermal state of a tensor entry (4-temperature model)
+///
+/// Each temperature has different decay rates and promotion/demotion thresholds.
+/// Entries flow bidirectionally: cement forward when reinforced, degrade backward when unused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Hash)]
 pub enum ThermalState {
-    /// Hot: High plasticity, volatile, session-local
+    /// Hot: Working memory, volatile, fast decay
     #[default]
     Hot,
-    /// Cold: Crystallized, stable, personality backbone
+    /// Warm: Session learning, medium decay, persists to cartridge
+    Warm,
+    /// Cool: Expertise/skill memory, slow decay, long-term
+    Cool,
+    /// Cold: Core identity, glacial decay, personality backbone
     Cold,
 }
 
-/// Configuration for thermal transitions
+impl ThermalState {
+    /// Get default decay rate for this temperature (per tick)
+    pub fn default_decay_rate(&self) -> f32 {
+        match self {
+            Self::Hot => 0.1,     // 10% per tick (fast)
+            Self::Warm => 0.01,   // 1% per tick (medium)
+            Self::Cool => 0.001,  // 0.1% per tick (slow)
+            Self::Cold => 0.0001, // 0.01% per tick (glacial)
+        }
+    }
+
+    /// Get promotion threshold to next colder layer
+    pub fn promotion_threshold(&self) -> f32 {
+        match self {
+            Self::Hot => 0.6,   // 60% to promote to Warm
+            Self::Warm => 0.75, // 75% to promote to Cool
+            Self::Cool => 0.9,  // 90% to promote to Cold
+            Self::Cold => 1.0,  // Cannot promote further
+        }
+    }
+
+    /// Get demotion threshold to next hotter layer
+    pub fn demotion_threshold(&self) -> f32 {
+        match self {
+            Self::Hot => 0.0,  // Cannot demote further
+            Self::Warm => 0.3, // Below 30% demotes to Hot
+            Self::Cool => 0.4, // Below 40% demotes to Warm
+            Self::Cold => 0.5, // Below 50% demotes to Cool
+        }
+    }
+
+    /// Minimum observations before promotion eligible
+    pub fn min_observations_for_promotion(&self) -> usize {
+        match self {
+            Self::Hot => 3,
+            Self::Warm => 10,
+            Self::Cool => 50,
+            Self::Cold => usize::MAX,
+        }
+    }
+
+    /// Next colder state (for promotion)
+    pub fn colder(&self) -> Option<Self> {
+        match self {
+            Self::Hot => Some(Self::Warm),
+            Self::Warm => Some(Self::Cool),
+            Self::Cool => Some(Self::Cold),
+            Self::Cold => None,
+        }
+    }
+
+    /// Next hotter state (for demotion)
+    pub fn hotter(&self) -> Option<Self> {
+        match self {
+            Self::Hot => None,
+            Self::Warm => Some(Self::Hot),
+            Self::Cool => Some(Self::Warm),
+            Self::Cold => Some(Self::Cool),
+        }
+    }
+
+    /// Get numeric index (for array access)
+    pub fn index(&self) -> usize {
+        match self {
+            Self::Hot => 0,
+            Self::Warm => 1,
+            Self::Cool => 2,
+            Self::Cold => 3,
+        }
+    }
+
+    /// Create from numeric index
+    pub fn from_index(index: usize) -> Option<Self> {
+        match index {
+            0 => Some(Self::Hot),
+            1 => Some(Self::Warm),
+            2 => Some(Self::Cool),
+            3 => Some(Self::Cold),
+            _ => None,
+        }
+    }
+
+    /// All states in order from hottest to coldest
+    pub fn all() -> [Self; 4] {
+        [Self::Hot, Self::Warm, Self::Cool, Self::Cold]
+    }
+
+    /// Human-readable name
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Hot => "hot",
+            Self::Warm => "warm",
+            Self::Cool => "cool",
+            Self::Cold => "cold",
+        }
+    }
+}
+
+/// Configuration for 4-temperature thermal transitions
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThermalConfig {
-    /// Minimum strength to crystallize (hot → cold)
-    pub crystallization_threshold: f32,
-    /// Minimum observations before crystallization eligible
-    pub min_observations: usize,
-    /// Strength below which hot entries are pruned
+    /// Decay rates per temperature layer [hot, warm, cool, cold]
+    pub decay_rates: [f32; 4],
+
+    /// Promotion thresholds (strength needed to promote) [hot, warm, cool, cold]
+    pub promotion_thresholds: [f32; 4],
+
+    /// Demotion thresholds (strength below which demotion occurs) [hot, warm, cool, cold]
+    pub demotion_thresholds: [f32; 4],
+
+    /// Minimum observations before promotion eligible [hot, warm, cool, cold]
+    pub min_observations: [usize; 4],
+
+    /// Whether each layer can be demoted [hot, warm, cool, cold]
+    pub allow_demotion: [bool; 4],
+
+    /// Strength below which entries are pruned entirely
     pub prune_threshold: f32,
-    /// Whether cold entries can be warmed back to hot
+
+    // Legacy fields for backward compatibility
+    /// Legacy: Minimum strength to crystallize (mapped to cool→cold promotion)
+    #[serde(default = "default_crystallization_threshold")]
+    pub crystallization_threshold: f32,
+    /// Legacy: Whether warming is allowed
+    #[serde(default = "default_allow_warming")]
     pub allow_warming: bool,
-    /// Strength increase required to warm a cold entry
+    /// Legacy: Warming delta
+    #[serde(default = "default_warming_delta")]
     pub warming_delta: f32,
 }
+
+fn default_crystallization_threshold() -> f32 { 0.75 }
+fn default_allow_warming() -> bool { true }
+fn default_warming_delta() -> f32 { 0.3 }
 
 impl Default for ThermalConfig {
     fn default() -> Self {
         Self {
+            decay_rates: [0.1, 0.01, 0.001, 0.0001],
+            promotion_thresholds: [0.6, 0.75, 0.9, 1.0],
+            demotion_thresholds: [0.0, 0.3, 0.4, 0.5],
+            min_observations: [3, 10, 50, usize::MAX],
+            allow_demotion: [false, true, true, true],
+            prune_threshold: 0.05,
+            // Legacy
             crystallization_threshold: 0.75,
-            min_observations: 3,
-            prune_threshold: 0.1,
             allow_warming: true,
             warming_delta: 0.3,
         }
     }
 }
 
-/// A Thermogram - plastic memory capsule with hot/cold tensor states
+impl ThermalConfig {
+    /// Create config optimized for Servicemen (faster learning)
+    pub fn serviceman() -> Self {
+        Self {
+            decay_rates: [0.05, 0.005, 0.0005, 0.00005],
+            promotion_thresholds: [0.5, 0.65, 0.85, 1.0],
+            demotion_thresholds: [0.0, 0.2, 0.3, 0.4],
+            min_observations: [2, 5, 20, usize::MAX],
+            allow_demotion: [false, true, true, false], // Cold doesn't demote
+            prune_threshold: 0.03,
+            crystallization_threshold: 0.85,
+            allow_warming: true,
+            warming_delta: 0.2,
+        }
+    }
+
+    /// Create config optimized for Astrominds (organic emergence)
+    pub fn astromind() -> Self {
+        Self {
+            decay_rates: [0.1, 0.01, 0.001, 0.0001],
+            promotion_thresholds: [0.7, 0.8, 0.95, 1.0],
+            demotion_thresholds: [0.0, 0.25, 0.35, 0.45],
+            min_observations: [5, 15, 100, usize::MAX],
+            allow_demotion: [false, true, true, true],
+            prune_threshold: 0.05,
+            crystallization_threshold: 0.95,
+            allow_warming: true,
+            warming_delta: 0.3,
+        }
+    }
+
+    /// Get decay rate for a thermal state
+    pub fn decay_rate(&self, state: ThermalState) -> f32 {
+        self.decay_rates[state.index()]
+    }
+
+    /// Get promotion threshold for a thermal state
+    pub fn promotion_threshold(&self, state: ThermalState) -> f32 {
+        self.promotion_thresholds[state.index()]
+    }
+
+    /// Get demotion threshold for a thermal state
+    pub fn demotion_threshold(&self, state: ThermalState) -> f32 {
+        self.demotion_thresholds[state.index()]
+    }
+
+    /// Get min observations for a thermal state
+    pub fn min_obs(&self, state: ThermalState) -> usize {
+        self.min_observations[state.index()]
+    }
+
+    /// Check if demotion is allowed for a thermal state
+    pub fn can_demote(&self, state: ThermalState) -> bool {
+        self.allow_demotion[state.index()]
+    }
+}
+
+/// A Thermogram - plastic memory capsule with 4-temperature tensor states
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Thermogram {
     /// Unique ID for this thermogram
@@ -67,10 +259,18 @@ pub struct Thermogram {
     /// Human-readable name
     pub name: String,
 
-    /// Hot tensors (high plasticity, volatile)
+    /// Hot tensors (working memory, volatile, fast decay)
     pub hot_entries: HashMap<String, ConsolidatedEntry>,
 
-    /// Cold tensors (crystallized, stable)
+    /// Warm tensors (session learning, medium decay)
+    #[serde(default)]
+    pub warm_entries: HashMap<String, ConsolidatedEntry>,
+
+    /// Cool tensors (expertise/skill, slow decay)
+    #[serde(default)]
+    pub cool_entries: HashMap<String, ConsolidatedEntry>,
+
+    /// Cold tensors (core identity, glacial decay)
     pub cold_entries: HashMap<String, ConsolidatedEntry>,
 
     /// Pending deltas (audit trail)
@@ -126,6 +326,8 @@ impl Thermogram {
             id: uuid::Uuid::new_v4().to_string(),
             name: name.into(),
             hot_entries: HashMap::new(),
+            warm_entries: HashMap::new(),
+            cool_entries: HashMap::new(),
             cold_entries: HashMap::new(),
             dirty_chain: HashChain::new(),
             plasticity_rule,
@@ -139,6 +341,44 @@ impl Thermogram {
                 custom: serde_json::Value::Null,
             },
         }
+    }
+
+    /// Create for Serviceman use (optimized config)
+    pub fn for_serviceman(name: impl Into<String>, plasticity_rule: PlasticityRule) -> Self {
+        Self::with_thermal_config(name, plasticity_rule, ThermalConfig::serviceman())
+    }
+
+    /// Create for Astromind use (organic config)
+    pub fn for_astromind(name: impl Into<String>, plasticity_rule: PlasticityRule) -> Self {
+        Self::with_thermal_config(name, plasticity_rule, ThermalConfig::astromind())
+    }
+
+    /// Get entries map for a thermal state (immutable)
+    pub fn entries(&self, state: ThermalState) -> &HashMap<String, ConsolidatedEntry> {
+        match state {
+            ThermalState::Hot => &self.hot_entries,
+            ThermalState::Warm => &self.warm_entries,
+            ThermalState::Cool => &self.cool_entries,
+            ThermalState::Cold => &self.cold_entries,
+        }
+    }
+
+    /// Get entries map for a thermal state (mutable)
+    pub fn entries_mut(&mut self, state: ThermalState) -> &mut HashMap<String, ConsolidatedEntry> {
+        match state {
+            ThermalState::Hot => &mut self.hot_entries,
+            ThermalState::Warm => &mut self.warm_entries,
+            ThermalState::Cool => &mut self.cool_entries,
+            ThermalState::Cold => &mut self.cold_entries,
+        }
+    }
+
+    /// Get total entry count across all layers
+    pub fn total_entries(&self) -> usize {
+        self.hot_entries.len()
+            + self.warm_entries.len()
+            + self.cool_entries.len()
+            + self.cold_entries.len()
     }
 
     /// Create with custom thermal config
@@ -166,7 +406,7 @@ impl Thermogram {
         Ok(())
     }
 
-    /// Read current value for a key (dirty → hot → cold priority)
+    /// Read current value for a key (dirty → hot → warm → cool → cold priority)
     pub fn read(&self, key: &str) -> Result<Option<Vec<u8>>> {
         // Check dirty state first (uncommitted changes)
         if let Some(delta) = self.dirty_chain.get_latest(key) {
@@ -180,16 +420,17 @@ impl Thermogram {
             }
         }
 
-        // Check hot tensors (session-local)
-        if let Some(entry) = self.hot_entries.get(key) {
-            return Ok(Some(entry.value.clone()));
+        // Check all thermal layers in order (hot → warm → cool → cold)
+        for state in ThermalState::all() {
+            if let Some(entry) = self.entries(state).get(key) {
+                return Ok(Some(entry.value.clone()));
+            }
         }
 
-        // Fall back to cold tensors (crystallized)
-        Ok(self.cold_entries.get(key).map(|entry| entry.value.clone()))
+        Ok(None)
     }
 
-    /// Read with strength and thermal state information
+    /// Read with strength information
     pub fn read_with_strength(&self, key: &str) -> Result<Option<(Vec<u8>, f32)>> {
         // Check dirty state first
         if let Some(delta) = self.dirty_chain.get_latest(key) {
@@ -203,21 +444,19 @@ impl Thermogram {
             }
         }
 
-        // Check hot tensors
-        if let Some(entry) = self.hot_entries.get(key) {
-            return Ok(Some((entry.value.clone(), entry.strength)));
+        // Check all thermal layers
+        for state in ThermalState::all() {
+            if let Some(entry) = self.entries(state).get(key) {
+                return Ok(Some((entry.value.clone(), entry.strength)));
+            }
         }
 
-        // Fall back to cold tensors
-        Ok(self
-            .cold_entries
-            .get(key)
-            .map(|entry| (entry.value.clone(), entry.strength)))
+        Ok(None)
     }
 
     /// Read with full thermal state information
     pub fn read_with_state(&self, key: &str) -> Result<Option<(Vec<u8>, f32, ThermalState)>> {
-        // Check dirty state first
+        // Check dirty state first (treated as Hot)
         if let Some(delta) = self.dirty_chain.get_latest(key) {
             match delta.delta_type {
                 DeltaType::Create | DeltaType::Update | DeltaType::Merge => {
@@ -229,47 +468,60 @@ impl Thermogram {
             }
         }
 
-        // Check hot tensors
-        if let Some(entry) = self.hot_entries.get(key) {
-            return Ok(Some((entry.value.clone(), entry.strength, ThermalState::Hot)));
+        // Check all thermal layers
+        for state in ThermalState::all() {
+            if let Some(entry) = self.entries(state).get(key) {
+                return Ok(Some((entry.value.clone(), entry.strength, state)));
+            }
         }
 
-        // Fall back to cold tensors
-        Ok(self
-            .cold_entries
-            .get(key)
-            .map(|entry| (entry.value.clone(), entry.strength, ThermalState::Cold)))
+        Ok(None)
     }
 
-    /// List all keys in current state (hot + cold + dirty)
+    /// List all keys in current state (all layers + dirty)
     pub fn keys(&self) -> Vec<String> {
-        let mut keys: Vec<String> = self.cold_entries.keys().cloned().collect();
+        let mut keys: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-        // Add hot keys not in cold
-        for key in self.hot_entries.keys() {
-            if !keys.contains(key) {
-                keys.push(key.clone());
+        // Add from all layers
+        for state in ThermalState::all() {
+            for key in self.entries(state).keys() {
+                keys.insert(key.clone());
             }
         }
 
-        // Add dirty keys not in hot or cold
+        // Add dirty keys (excluding deletes)
         for delta in &self.dirty_chain.deltas {
-            if !keys.contains(&delta.key) && delta.delta_type != DeltaType::Delete {
-                keys.push(delta.key.clone());
+            if delta.delta_type != DeltaType::Delete {
+                keys.insert(delta.key.clone());
             }
         }
 
-        keys
+        keys.into_iter().collect()
+    }
+
+    /// List keys for a specific thermal state
+    pub fn keys_for_state(&self, state: ThermalState) -> Vec<String> {
+        self.entries(state).keys().cloned().collect()
     }
 
     /// List only hot tensor keys
     pub fn hot_keys(&self) -> Vec<String> {
-        self.hot_entries.keys().cloned().collect()
+        self.keys_for_state(ThermalState::Hot)
+    }
+
+    /// List only warm tensor keys
+    pub fn warm_keys(&self) -> Vec<String> {
+        self.keys_for_state(ThermalState::Warm)
+    }
+
+    /// List only cool tensor keys
+    pub fn cool_keys(&self) -> Vec<String> {
+        self.keys_for_state(ThermalState::Cool)
     }
 
     /// List only cold tensor keys
     pub fn cold_keys(&self) -> Vec<String> {
-        self.cold_entries.keys().cloned().collect()
+        self.keys_for_state(ThermalState::Cold)
     }
 
     /// Get history for a key
@@ -312,25 +564,29 @@ impl Thermogram {
         Ok(result)
     }
 
-    /// Crystallize high-confidence hot entries to cold layer
+    /// Crystallize high-confidence hot entries to cold layer (legacy method)
+    ///
+    /// Note: This is a legacy 2-temperature method. For 4-temperature transitions,
+    /// use run_thermal_transitions() instead. This method skips warm/cool layers.
     ///
     /// Entries are crystallized when:
     /// - Strength >= crystallization_threshold
-    /// - Update count >= min_observations
+    /// - Update count >= min_observations[0] (hot layer)
     pub fn crystallize(&mut self) -> Result<CrystallizationResult> {
         let mut result = CrystallizationResult::default();
         let mut keys_to_crystallize = Vec::new();
 
-        // Find eligible entries
+        // Find eligible entries (using legacy crystallization_threshold and hot min_observations)
+        let min_obs = self.thermal_config.min_observations[ThermalState::Hot.index()];
         for (key, entry) in &self.hot_entries {
             if entry.strength >= self.thermal_config.crystallization_threshold
-                && entry.update_count >= self.thermal_config.min_observations
+                && entry.update_count >= min_obs
             {
                 keys_to_crystallize.push(key.clone());
             }
         }
 
-        // Move to cold layer
+        // Move to cold layer (skipping warm/cool for legacy behavior)
         for key in keys_to_crystallize {
             if let Some(entry) = self.hot_entries.remove(&key) {
                 // Merge with existing cold entry if present
@@ -350,6 +606,104 @@ impl Thermogram {
         }
 
         Ok(result)
+    }
+
+    /// Run 4-temperature thermal transitions (promotion and demotion)
+    ///
+    /// Promotes strong entries to colder layers, demotes weak entries to hotter layers.
+    /// This is the preferred method for 4-temperature thermograms.
+    pub fn run_thermal_transitions(&mut self) -> Result<()> {
+        // Hot → Warm promotions
+        self.promote_layer(ThermalState::Hot, ThermalState::Warm)?;
+
+        // Warm → Cool promotions
+        self.promote_layer(ThermalState::Warm, ThermalState::Cool)?;
+
+        // Cool → Cold promotions
+        self.promote_layer(ThermalState::Cool, ThermalState::Cold)?;
+
+        // Demotions (if allowed)
+        if self.thermal_config.can_demote(ThermalState::Cold) {
+            self.demote_layer(ThermalState::Cold, ThermalState::Cool)?;
+        }
+        if self.thermal_config.can_demote(ThermalState::Cool) {
+            self.demote_layer(ThermalState::Cool, ThermalState::Warm)?;
+        }
+        if self.thermal_config.can_demote(ThermalState::Warm) {
+            self.demote_layer(ThermalState::Warm, ThermalState::Hot)?;
+        }
+
+        // Prune very weak entries
+        self.prune_all_layers()?;
+
+        Ok(())
+    }
+
+    /// Promote entries from one layer to the next colder layer
+    fn promote_layer(&mut self, from: ThermalState, to: ThermalState) -> Result<usize> {
+        let threshold = self.thermal_config.promotion_threshold(from);
+        let min_obs = self.thermal_config.min_obs(from);
+
+        let keys_to_promote: Vec<String> = self
+            .entries(from)
+            .iter()
+            .filter(|(_, entry)| entry.strength >= threshold && entry.update_count >= min_obs)
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        let count = keys_to_promote.len();
+        for key in keys_to_promote {
+            if let Some(entry) = self.entries_mut(from).remove(&key) {
+                if let Some(existing) = self.entries_mut(to).get_mut(&key) {
+                    existing.strength = existing.strength * 0.3 + entry.strength * 0.7;
+                    existing.value = entry.value;
+                    existing.updated_at = entry.updated_at;
+                    existing.update_count += entry.update_count;
+                } else {
+                    self.entries_mut(to).insert(key, entry);
+                }
+            }
+        }
+        Ok(count)
+    }
+
+    /// Demote entries from one layer to the next hotter layer
+    fn demote_layer(&mut self, from: ThermalState, to: ThermalState) -> Result<usize> {
+        let threshold = self.thermal_config.demotion_threshold(from);
+
+        let keys_to_demote: Vec<String> = self
+            .entries(from)
+            .iter()
+            .filter(|(_, entry)| entry.strength < threshold)
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        let count = keys_to_demote.len();
+        for key in keys_to_demote {
+            if let Some(mut entry) = self.entries_mut(from).remove(&key) {
+                entry.strength = (entry.strength * 0.95).max(0.01);
+                entry.updated_at = Utc::now();
+                if let Some(existing) = self.entries_mut(to).get_mut(&key) {
+                    existing.strength = existing.strength.max(entry.strength);
+                    existing.updated_at = entry.updated_at;
+                } else {
+                    self.entries_mut(to).insert(key, entry);
+                }
+            }
+        }
+        Ok(count)
+    }
+
+    /// Prune very weak entries from all layers
+    fn prune_all_layers(&mut self) -> Result<usize> {
+        let threshold = self.thermal_config.prune_threshold;
+        let mut total = 0;
+        for state in ThermalState::all() {
+            let before = self.entries(state).len();
+            self.entries_mut(state).retain(|_, e| e.strength >= threshold);
+            total += before - self.entries(state).len();
+        }
+        Ok(total)
     }
 
     /// Warm a cold entry back to hot (reactivate for updates)
@@ -455,6 +809,8 @@ impl Thermogram {
         ThermogramStats {
             total_keys: self.keys().len(),
             hot_entries: self.hot_entries.len(),
+            warm_entries: self.warm_entries.len(),
+            cool_entries: self.cool_entries.len(),
             cold_entries: self.cold_entries.len(),
             dirty_deltas: self.dirty_chain.len(),
             total_deltas_lifetime: self.metadata.total_deltas,
@@ -467,19 +823,52 @@ impl Thermogram {
 
     /// Estimate total size in bytes
     fn estimate_size(&self) -> usize {
-        let hot_size: usize = self
-            .hot_entries
-            .values()
-            .map(|e| e.value.len() + e.key.len() + 100)
-            .sum();
+        let mut total = 0;
 
-        let cold_size: usize = self
-            .cold_entries
-            .values()
-            .map(|e| e.value.len() + e.key.len() + 100)
-            .sum();
+        for state in ThermalState::all() {
+            total += self
+                .entries(state)
+                .values()
+                .map(|e| e.value.len() + e.key.len() + 100)
+                .sum::<usize>();
+        }
 
-        hot_size + cold_size + self.estimate_dirty_size()
+        total + self.estimate_dirty_size()
+    }
+
+    /// Apply decay to all entries based on their thermal state
+    pub fn apply_decay(&mut self) {
+        for state in ThermalState::all() {
+            let decay_rate = self.thermal_config.decay_rate(state);
+            for entry in self.entries_mut(state).values_mut() {
+                entry.strength = (entry.strength * (1.0 - decay_rate)).max(0.0);
+            }
+        }
+    }
+
+    /// Reinforce an entry (increase strength)
+    pub fn reinforce(&mut self, key: &str, amount: f32) -> Result<bool> {
+        for state in ThermalState::all() {
+            if let Some(entry) = self.entries_mut(state).get_mut(key) {
+                entry.strength = (entry.strength + amount).min(1.0);
+                entry.update_count += 1;
+                entry.updated_at = Utc::now();
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Weaken an entry (decrease strength)
+    pub fn weaken(&mut self, key: &str, amount: f32) -> Result<bool> {
+        for state in ThermalState::all() {
+            if let Some(entry) = self.entries_mut(state).get_mut(key) {
+                entry.strength = (entry.strength - amount).max(0.0);
+                entry.updated_at = Utc::now();
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 }
 
@@ -488,6 +877,8 @@ impl Thermogram {
 pub struct ThermogramStats {
     pub total_keys: usize,
     pub hot_entries: usize,
+    pub warm_entries: usize,
+    pub cool_entries: usize,
     pub cold_entries: usize,
     pub dirty_deltas: usize,
     pub total_deltas_lifetime: usize,
@@ -571,7 +962,7 @@ mod tests {
     fn test_crystallization() {
         let mut thermo = Thermogram::new("test", PlasticityRule::stdp_like());
         thermo.thermal_config.crystallization_threshold = 0.7;
-        thermo.thermal_config.min_observations = 2;
+        thermo.thermal_config.min_observations[0] = 2; // Hot layer min_observations
 
         // Create high-strength entry with enough observations
         let mut delta = Delta::create("key1", b"value1".to_vec(), "source");
@@ -586,9 +977,70 @@ mod tests {
         thermo.apply_delta(delta2).unwrap();
         thermo.consolidate().unwrap();
 
-        // Should have crystallized to cold
+        // Should have crystallized to cold (legacy behavior skips warm/cool)
         assert_eq!(thermo.cold_entries.len(), 1);
         assert!(thermo.hot_entries.is_empty());
+    }
+
+    #[test]
+    fn test_4temp_promotion() {
+        let mut thermo = Thermogram::new("test", PlasticityRule::stdp_like());
+        // Set low thresholds for easy promotion
+        thermo.thermal_config.promotion_thresholds = [0.5, 0.5, 0.5, 1.0];
+        thermo.thermal_config.min_observations = [1, 1, 1, usize::MAX];
+
+        // Add high-strength entry to hot
+        thermo.hot_entries.insert(
+            "key1".to_string(),
+            ConsolidatedEntry {
+                key: "key1".to_string(),
+                value: b"value1".to_vec(),
+                strength: 0.8,
+                ternary_strength: None,
+                updated_at: Utc::now(),
+                update_count: 5,
+            },
+        );
+
+        // Run transitions
+        thermo.run_thermal_transitions().unwrap();
+
+        // Should have promoted through all layers to cold
+        assert!(thermo.hot_entries.is_empty());
+        assert!(thermo.warm_entries.is_empty());
+        assert!(thermo.cool_entries.is_empty());
+        assert_eq!(thermo.cold_entries.len(), 1);
+    }
+
+    #[test]
+    fn test_4temp_demotion() {
+        let mut thermo = Thermogram::new("test", PlasticityRule::stdp_like());
+        // Set thresholds: cold demotes at 0.5, others don't demote (threshold 0.0)
+        thermo.thermal_config.demotion_thresholds = [0.0, 0.0, 0.0, 0.5];
+        thermo.thermal_config.allow_demotion = [false, true, true, true];
+
+        // Add weak entry to cold
+        thermo.cold_entries.insert(
+            "key1".to_string(),
+            ConsolidatedEntry {
+                key: "key1".to_string(),
+                value: b"value1".to_vec(),
+                strength: 0.3, // Below cold's demotion threshold (0.5)
+                ternary_strength: None,
+                updated_at: Utc::now(),
+                update_count: 1,
+            },
+        );
+
+        // Run transitions
+        thermo.run_thermal_transitions().unwrap();
+
+        // Should have demoted one level to cool (other layers don't demote with threshold 0.0)
+        assert!(thermo.cold_entries.is_empty());
+        assert_eq!(thermo.cool_entries.len(), 1);
+        // Entry should exist with slightly reduced strength
+        let entry = thermo.cool_entries.get("key1").unwrap();
+        assert!(entry.strength < 0.3);
     }
 
     #[test]
