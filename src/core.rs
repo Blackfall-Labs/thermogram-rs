@@ -260,6 +260,7 @@ pub struct Thermogram {
     pub name: String,
 
     /// Hot tensors (working memory, volatile, fast decay)
+    #[serde(default)]
     pub hot_entries: HashMap<String, ConsolidatedEntry>,
 
     /// Warm tensors (session learning, medium decay)
@@ -271,6 +272,7 @@ pub struct Thermogram {
     pub cool_entries: HashMap<String, ConsolidatedEntry>,
 
     /// Cold tensors (core identity, glacial decay)
+    #[serde(default)]
     pub cold_entries: HashMap<String, ConsolidatedEntry>,
 
     /// Pending deltas (audit trail)
