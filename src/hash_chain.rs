@@ -173,6 +173,11 @@ impl Default for HashChain {
 mod tests {
     use super::*;
     use crate::delta::DeltaType;
+    use ternary_signal::Signal;
+
+    fn sig_val(v: u8) -> Vec<Signal> {
+        vec![Signal::positive(v)]
+    }
 
     #[test]
     fn test_empty_chain() {
@@ -184,7 +189,7 @@ mod tests {
     #[test]
     fn test_append_first_delta() {
         let mut chain = HashChain::new();
-        let delta = Delta::create("key1", b"value1".to_vec(), "source");
+        let delta = Delta::create("key1", sig_val(100), "source");
 
         chain.append(delta).unwrap();
 
@@ -196,14 +201,14 @@ mod tests {
     fn test_append_chain() {
         let mut chain = HashChain::new();
 
-        let delta1 = Delta::create("key1", b"value1".to_vec(), "source");
+        let delta1 = Delta::create("key1", sig_val(100), "source");
         let hash1 = delta1.hash.clone();
         chain.append(delta1).unwrap();
 
-        let delta2 = Delta::update("key1", b"value2".to_vec(), "source", 0.8, Some(hash1.clone()));
+        let delta2 = Delta::update("key1", sig_val(110), "source", Signal::positive(204), Some(hash1.clone()));
         chain.append(delta2).unwrap();
 
-        let delta3 = Delta::update("key1", b"value3".to_vec(), "source", 0.9, Some(chain.head_hash.clone().unwrap()));
+        let delta3 = Delta::update("key1", sig_val(120), "source", Signal::positive(230), Some(chain.head_hash.clone().unwrap()));
         chain.append(delta3).unwrap();
 
         assert_eq!(chain.len(), 3);
@@ -214,11 +219,11 @@ mod tests {
     fn test_broken_chain() {
         let mut chain = HashChain::new();
 
-        let delta1 = Delta::create("key1", b"value1".to_vec(), "source");
+        let delta1 = Delta::create("key1", sig_val(100), "source");
         chain.append(delta1).unwrap();
 
         // Try to append with wrong prev_hash
-        let delta2 = Delta::update("key1", b"value2".to_vec(), "source", 0.8, Some("wrong_hash".to_string()));
+        let delta2 = Delta::update("key1", sig_val(110), "source", Signal::positive(204), Some("wrong_hash".to_string()));
 
         assert!(chain.append(delta2).is_err());
     }
@@ -227,18 +232,18 @@ mod tests {
     fn test_get_history() {
         let mut chain = HashChain::new();
 
-        let delta1 = Delta::create("key1", b"value1".to_vec(), "source");
+        let delta1 = Delta::create("key1", sig_val(100), "source");
         let hash1 = delta1.hash.clone();
         chain.append(delta1).unwrap();
 
         // Second delta must link to first
-        let mut delta2 = Delta::create("key2", b"value2".to_vec(), "source");
+        let mut delta2 = Delta::create("key2", sig_val(110), "source");
         delta2.prev_hash = Some(hash1.clone());
         delta2.hash = delta2.compute_hash();
         let hash2 = delta2.hash.clone();
         chain.append(delta2).unwrap();
 
-        let delta3 = Delta::update("key1", b"value3".to_vec(), "source", 0.8, Some(hash2.clone()));
+        let delta3 = Delta::update("key1", sig_val(120), "source", Signal::positive(204), Some(hash2.clone()));
         chain.append(delta3).unwrap();
 
         let history = chain.get_history("key1");
@@ -249,16 +254,16 @@ mod tests {
     fn test_get_latest() {
         let mut chain = HashChain::new();
 
-        let delta1 = Delta::create("key1", b"value1".to_vec(), "source");
+        let delta1 = Delta::create("key1", sig_val(100), "source");
         let hash1 = delta1.hash.clone();
         chain.append(delta1).unwrap();
 
-        let delta2 = Delta::update("key1", b"value2".to_vec(), "source", 0.8, Some(hash1.clone()));
+        let delta2 = Delta::update("key1", sig_val(110), "source", Signal::positive(204), Some(hash1.clone()));
         let hash2 = delta2.hash.clone();
         chain.append(delta2).unwrap();
 
         let latest = chain.get_latest("key1").unwrap();
         assert_eq!(latest.hash, hash2);
-        assert_eq!(latest.value, b"value2");
+        assert_eq!(latest.value, sig_val(110));
     }
 }

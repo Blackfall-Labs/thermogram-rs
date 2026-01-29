@@ -7,14 +7,19 @@
 //! - Resource exhaustion protection
 
 use thermogram::*;
+use ternary_signal::Signal;
 use tempfile::tempdir;
+
+fn sig_val(v: u8) -> Vec<Signal> {
+    vec![Signal::positive(v)]
+}
 
 #[test]
 fn test_detect_hash_tampering() {
     let mut thermo = Thermogram::new("test", PlasticityRule::stdp_like());
 
     // Create valid delta
-    let delta = Delta::create("key1", b"value1".to_vec(), "source");
+    let delta = Delta::create("key1", sig_val(100), "source");
     thermo.apply_delta(delta.clone()).unwrap();
 
     // Tamper with hash chain
@@ -29,15 +34,15 @@ fn test_detect_hash_tampering() {
 fn test_reject_invalid_chain_link() {
     let mut thermo = Thermogram::new("test", PlasticityRule::stdp_like());
 
-    let delta1 = Delta::create("key1", b"value1".to_vec(), "source");
+    let delta1 = Delta::create("key1", sig_val(100), "source");
     thermo.apply_delta(delta1).unwrap();
 
     // Try to append with wrong prev_hash
     let delta2 = Delta::update(
         "key1",
-        b"value2".to_vec(),
+        sig_val(110),
         "source",
-        0.8,
+        Signal::positive(204),
         Some("wrong_hash".to_string()),
     );
 
@@ -65,7 +70,7 @@ fn test_partial_file_corruption() {
 
     // Create valid Thermogram
     let mut thermo = Thermogram::new("test", PlasticityRule::stdp_like());
-    let delta = Delta::create("key1", b"value1".to_vec(), "source");
+    let delta = Delta::create("key1", sig_val(100), "source");
     thermo.apply_delta(delta).unwrap();
     thermo.save(&path).unwrap();
 
@@ -103,7 +108,7 @@ fn test_negative_neuromod_values() {
 
 #[test]
 fn test_empty_key_rejection() {
-    let delta = Delta::create("", b"value".to_vec(), "source");
+    let delta = Delta::create("", sig_val(100), "source");
 
     // Empty keys should be rejected (implementation needed)
     // For now, just verify it doesn't panic
@@ -114,8 +119,8 @@ fn test_empty_key_rejection() {
 fn test_huge_value_delta() {
     let mut thermo = Thermogram::new("test", PlasticityRule::stdp_like());
 
-    // 10 MB value
-    let huge_value = vec![0u8; 10_000_000];
+    // 10M Signal value
+    let huge_value = vec![Signal::ZERO; 10_000_000];
     let delta = Delta::create("huge", huge_value, "source");
 
     // Should handle gracefully (may be slow but shouldn't crash)
@@ -131,9 +136,9 @@ fn test_consolidation_with_all_weak_entries() {
     for i in 0..10 {
         let delta = Delta::update(
             format!("weak_{}", i),
-            b"value".to_vec(),
+            sig_val(100),
             "source",
-            0.01, // Below prune threshold
+            Signal::positive(3), // ~0.01, below prune threshold
             thermo.dirty_chain.head_hash.clone(),
         );
         thermo.apply_delta(delta).unwrap();
@@ -149,8 +154,8 @@ fn test_consolidation_with_all_weak_entries() {
 #[test]
 fn test_hash_collision_resistance() {
     // Two different deltas should have different hashes
-    let delta1 = Delta::create("key1", b"value1".to_vec(), "source");
-    let delta2 = Delta::create("key2", b"value2".to_vec(), "source");
+    let delta1 = Delta::create("key1", sig_val(100), "source");
+    let delta2 = Delta::create("key2", sig_val(110), "source");
 
     assert_ne!(delta1.hash, delta2.hash);
 }
@@ -159,7 +164,7 @@ fn test_hash_collision_resistance() {
 fn test_replay_attack_prevention() {
     let mut thermo = Thermogram::new("test", PlasticityRule::stdp_like());
 
-    let delta = Delta::create("key1", b"value1".to_vec(), "source");
+    let delta = Delta::create("key1", sig_val(100), "source");
     thermo.apply_delta(delta.clone()).unwrap();
 
     // Try to replay the same delta
@@ -174,12 +179,12 @@ fn test_concurrent_write_detection() {
     // This would require threading, but we can simulate
     let mut thermo = Thermogram::new("test", PlasticityRule::stdp_like());
 
-    let delta1 = Delta::create("key1", b"value1".to_vec(), "source");
+    let delta1 = Delta::create("key1", sig_val(100), "source");
     let head1 = delta1.hash.clone();
     thermo.apply_delta(delta1).unwrap();
 
     // Simulate concurrent write with stale head
-    let delta2 = Delta::update("key1", b"value2".to_vec(), "source", 0.8, Some(head1));
+    let delta2 = Delta::update("key1", sig_val(110), "source", Signal::positive(204), Some(head1));
 
     // This should work (sequential)
     // In real concurrent scenario, one would fail
@@ -236,7 +241,7 @@ fn test_memory_bomb_protection() {
     for i in 0..1000 {
         let delta = Delta::create(
             format!("key_{}", i),
-            b"value".to_vec(),
+            sig_val(100),
             "source",
         );
 

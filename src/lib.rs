@@ -53,31 +53,31 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use thermogram::{Thermogram, PlasticityRule, Delta};
+//! use thermogram::{Thermogram, PlasticityRule, Delta, Signal};
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
-//! // Create new thermogram for LLM activation clusters
-//! let mut thermo = Thermogram::new("llm_clusters", PlasticityRule::stdp_like());
+//! // Create new thermogram for neural weight storage
+//! let mut thermo = Thermogram::new("neural_weights", PlasticityRule::stdp_like());
 //!
-//! // Apply delta (cluster centroid update)
-//! let new_centroid = vec![0.5_f32; 2048];
+//! // Apply delta (weight vector update using Signal-native values)
+//! let weights: Vec<Signal> = (0..64).map(|i| Signal::positive(i as u8)).collect();
 //! let delta = Delta::update(
-//!     "cluster_0",
-//!     bincode::serialize(&new_centroid)?,
-//!     "llm_mining",
-//!     0.8,
+//!     "layer_0",
+//!     weights,
+//!     "training",
+//!     Signal::positive(204), // ~0.8 strength
 //!     thermo.dirty_chain.head_hash.clone(),
 //! );
 //! thermo.apply_delta(delta)?;
 //!
 //! // Read current state (hot tensors take priority)
-//! let centroid = thermo.read("cluster_0")?;
+//! let stored = thermo.read("layer_0")?;
 //!
 //! // Consolidate (crystallize hot → cold, prune weak)
 //! thermo.consolidate()?;
 //!
 //! // Export to JSON
-//! thermo.export_to_json("llm_knowledge_v1.json")?;
+//! thermo.export_to_json("neural_knowledge_v1.json")?;
 //! # Ok(())
 //! # }
 //! ```
@@ -89,6 +89,7 @@ pub mod consolidation;
 pub mod hash_chain;
 pub mod export;
 pub mod error;
+pub mod codec;
 pub mod plasticity_engine;
 pub mod embedded_snn;
 pub mod ternary;
@@ -96,6 +97,7 @@ pub mod colony;
 pub mod distillation;
 
 // Re-exports
+pub use ternary_signal::{Signal, Polarity};
 pub use crate::core::{Thermogram, ThermalState, ThermalConfig, CrystallizationResult, ThermogramStats};
 pub use crate::delta::{Delta, DeltaType};
 pub use crate::plasticity::{PlasticityRule, UpdatePolicy};

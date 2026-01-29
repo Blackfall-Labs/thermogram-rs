@@ -15,6 +15,7 @@ use crate::plasticity::PlasticityRule;
 use crate::plasticity_engine::{NeuromodState, PlasticityEngine, PlasticityEngineState};
 use crate::ternary::TernaryWeight;
 use serde::{Deserialize, Serialize};
+use ternary_signal::Signal;
 
 /// Configuration for embedded SNN
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -301,12 +302,17 @@ impl EmbeddedSNN {
                                 f32_conn.1 = new_weight.to_f32().abs(); // Use absolute for weight
                             }
 
-                            // Generate ternary delta
-                            deltas.push(Delta::merge_ternary(
+                            // Generate ternary delta — Signal encodes the ternary weight
+                            let sig = match new_weight {
+                                TernaryWeight::Pos => Signal::positive(255),
+                                TernaryWeight::Neg => Signal::negative(255),
+                                TernaryWeight::Zero => Signal::ZERO,
+                            };
+                            deltas.push(Delta::merge(
                                 format!("weight_{}_{}", i, j),
-                                vec![new_weight as i8 as u8],
+                                vec![sig],
                                 "snn_ternary_stdp",
-                                new_weight,
+                                sig,
                                 None,
                             ));
                         }
@@ -316,13 +322,14 @@ impl EmbeddedSNN {
                     if let Some(conn) = self.state.weights[i].iter_mut().find(|(n, _)| *n == j) {
                         conn.1 = (conn.1 + lr).clamp(0.0, 1.0);
 
-                        // Generate delta for this weight change
+                        // Generate delta for this weight change (Signal-native)
+                        let sig = Signal::from_signed(conn.1);
                         deltas.push(Delta::merge(
                             format!("weight_{}_{}", i, j),
-                            conn.1.to_le_bytes().to_vec(),
+                            vec![sig],
                             "snn_stdp",
-                            conn.1, // Strength = weight value
-                            None,   // Will be set by Thermogram
+                            sig,
+                            None,
                         ));
                     }
                 }
@@ -592,16 +599,16 @@ mod tests {
 
         let deltas = snn.process(&input, &neuromod).unwrap();
 
-        // Ternary deltas should have ternary_strength set
-        let ternary_updates: Vec<_> = deltas
+        // Weight deltas should use Signal strength
+        let weight_updates: Vec<_> = deltas
             .iter()
-            .filter(|d| d.is_ternary() && d.key.starts_with("weight_"))
+            .filter(|d| d.key.starts_with("weight_"))
             .collect();
 
         // May or may not have updates depending on timing
-        // Just verify the structure is correct if we have any
-        for delta in ternary_updates {
-            assert!(delta.metadata.ternary_strength.is_some());
+        // Just verify strength is Signal-native (magnitude > 0 for non-zero weights)
+        for delta in &weight_updates {
+            assert!(delta.metadata.strength.magnitude > 0 || delta.metadata.strength.polarity as i8 == 0);
         }
     }
 }

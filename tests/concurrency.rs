@@ -6,6 +6,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use tempfile::tempdir;
 use thermogram::*;
+use ternary_signal::Signal;
+
+fn sig_val(v: u8) -> Vec<Signal> {
+    vec![Signal::positive(v)]
+}
 
 #[test]
 fn test_concurrent_reads() {
@@ -15,9 +20,9 @@ fn test_concurrent_reads() {
     for i in 0..100 {
         let delta = Delta::update(
             format!("key_{}", i),
-            b"value".to_vec(),
+            sig_val(100),
             "source",
-            0.5,
+            Signal::positive(128),
             thermo.dirty_chain.head_hash.clone(),
         );
         thermo.apply_delta(delta).unwrap();
@@ -63,9 +68,9 @@ fn test_sequential_writes_no_conflicts() {
                 let mut t = thermo_clone.lock().unwrap();
                 let delta = Delta::update(
                     format!("key_{}_{}", thread_id, i),
-                    b"value".to_vec(),
+                    sig_val(100),
                     "source",
-                    0.5,
+                    Signal::positive(128),
                     t.dirty_chain.head_hash.clone(),
                 );
                 t.apply_delta(delta).unwrap();
@@ -101,9 +106,9 @@ fn test_concurrent_save_load() {
             for i in 0..10 {
                 let delta = Delta::update(
                     format!("key_{}", i),
-                    b"value".to_vec(),
+                    sig_val(100),
                     "source",
-                    0.5,
+                    Signal::positive(128),
                     thermo.dirty_chain.head_hash.clone(),
                 );
                 thermo.apply_delta(delta).unwrap();
@@ -170,9 +175,9 @@ fn test_consolidation_while_reading() {
         for i in 0..100 {
             let delta = Delta::update(
                 format!("key_{}", i),
-                b"value".to_vec(),
+                sig_val(100),
                 "source",
-                0.5,
+                Signal::positive(128),
                 t.dirty_chain.head_hash.clone(),
             );
             t.apply_delta(delta).unwrap();
@@ -251,7 +256,7 @@ fn test_hash_chain_thread_safety() {
 
                 let mut delta = Delta::create(
                     format!("key_{}_{}", thread_id, i),
-                    b"value".to_vec(),
+                    sig_val(100),
                     "source",
                 );
 
@@ -289,9 +294,9 @@ fn test_no_data_races_in_consolidation() {
             let mut t = thermo_write.lock().unwrap();
             let delta = Delta::update(
                 format!("key_{}", i),
-                b"value".to_vec(),
+                sig_val(100),
                 "source",
-                0.5,
+                Signal::positive(128),
                 t.dirty_chain.head_hash.clone(),
             );
             t.apply_delta(delta).unwrap();

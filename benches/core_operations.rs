@@ -1,12 +1,17 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use thermogram::*;
+use ternary_signal::Signal;
+
+fn sig_val(v: u8) -> Vec<Signal> {
+    vec![Signal::positive(v)]
+}
 
 fn bench_delta_creation(c: &mut Criterion) {
     c.bench_function("delta_create", |b| {
         b.iter(|| {
             Delta::create(
                 black_box("test_key"),
-                black_box(b"test_value".to_vec()),
+                black_box(sig_val(100)),
                 black_box("source"),
             )
         })
@@ -27,9 +32,9 @@ fn bench_delta_append(c: &mut Criterion) {
                         for i in 0..size {
                             let delta = Delta::update(
                                 format!("key_{}", i),
-                                b"value".to_vec(),
+                                sig_val(100),
                                 "source",
-                                0.5,
+                                Signal::positive(128),
                                 thermo.dirty_chain.head_hash.clone(),
                             );
                             thermo.apply_delta(delta).unwrap();
@@ -39,9 +44,9 @@ fn bench_delta_append(c: &mut Criterion) {
                     |mut thermo| {
                         let delta = Delta::update(
                             "new_key",
-                            b"new_value".to_vec(),
+                            sig_val(200),
                             "source",
-                            0.5,
+                            Signal::positive(128),
                             thermo.dirty_chain.head_hash.clone(),
                         );
                         thermo.apply_delta(delta).unwrap();
@@ -55,7 +60,7 @@ fn bench_delta_append(c: &mut Criterion) {
 }
 
 fn bench_hash_verification(c: &mut Criterion) {
-    let delta = Delta::create("key", b"value".to_vec(), "source");
+    let delta = Delta::create("key", sig_val(100), "source");
 
     c.bench_function("hash_verify", |b| {
         b.iter(|| {
@@ -77,10 +82,10 @@ fn bench_consolidation(c: &mut Criterion) {
                         let mut thermo = Thermogram::new("bench", PlasticityRule::stdp_like());
                         for i in 0..size {
                             let delta = Delta::update(
-                                format!("key_{}", i % 100), // Some overlap
-                                b"value".to_vec(),
+                                format!("key_{}", i % 100),
+                                sig_val(100),
                                 "source",
-                                0.5,
+                                Signal::positive(128),
                                 thermo.dirty_chain.head_hash.clone(),
                             );
                             thermo.apply_delta(delta).unwrap();
@@ -126,15 +131,14 @@ fn bench_snn_tick(c: &mut Criterion) {
 fn bench_read_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("read_operations");
 
-    // Setup Thermogram with various sizes
     for entries in [10, 100, 1000].iter() {
         let mut thermo = Thermogram::new("bench", PlasticityRule::stdp_like());
         for i in 0..*entries {
             let delta = Delta::update(
                 format!("key_{}", i),
-                b"value".to_vec(),
+                sig_val(100),
                 "source",
-                0.5,
+                Signal::positive(128),
                 thermo.dirty_chain.head_hash.clone(),
             );
             thermo.apply_delta(delta).unwrap();
@@ -155,9 +159,9 @@ fn bench_read_operations(c: &mut Criterion) {
         for i in 0..10 {
             let delta = Delta::update(
                 format!("key_{}", i),
-                b"updated".to_vec(),
+                sig_val(200),
                 "source",
-                0.8,
+                Signal::positive(204),
                 thermo.dirty_chain.head_hash.clone(),
             );
             thermo.apply_delta(delta).unwrap();
@@ -193,8 +197,8 @@ fn bench_plasticity_rules(c: &mut Criterion) {
             |b, rule| {
                 b.iter(|| {
                     rule.apply_update(
-                        black_box(0.5),
-                        black_box(0.8),
+                        black_box(Signal::positive(128)),
+                        black_box(Signal::positive(204)),
                         black_box(100.0),
                     )
                 })
@@ -217,6 +221,50 @@ fn bench_neuromod_sync(c: &mut Criterion) {
     });
 }
 
+fn bench_binary_save_load(c: &mut Criterion) {
+    let mut group = c.benchmark_group("binary_save_load");
+
+    for entries in [10, 100, 1000].iter() {
+        let mut thermo = Thermogram::new("bench", PlasticityRule::stdp_like());
+        for i in 0..*entries {
+            let value: Vec<Signal> = (0..64).map(|v| Signal::positive(v as u8)).collect();
+            thermo.hot_entries.insert(
+                format!("key_{}", i),
+                thermogram::ConsolidatedEntry {
+                    key: format!("key_{}", i),
+                    value,
+                    strength: Signal::positive(200),
+                    updated_at: chrono::Utc::now(),
+                    update_count: i + 1,
+                },
+            );
+        }
+
+        group.bench_with_input(
+            BenchmarkId::new("encode", entries),
+            entries,
+            |b, _| {
+                b.iter(|| {
+                    thermogram::codec::encode(black_box(&thermo)).unwrap();
+                })
+            },
+        );
+
+        let encoded = thermogram::codec::encode(&thermo).unwrap();
+
+        group.bench_with_input(
+            BenchmarkId::new("decode", entries),
+            entries,
+            |b, _| {
+                b.iter(|| {
+                    thermogram::codec::decode(black_box(&encoded)).unwrap();
+                })
+            },
+        );
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_delta_creation,
@@ -227,5 +275,6 @@ criterion_group!(
     bench_read_operations,
     bench_plasticity_rules,
     bench_neuromod_sync,
+    bench_binary_save_load,
 );
 criterion_main!(benches);

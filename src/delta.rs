@@ -3,17 +3,16 @@
 //! Deltas are append-only records of state changes. They form the "dirty" state
 //! before consolidation.
 //!
-//! ## Ternary Strength Support
+//! ## Signal-Native Strength
 //!
-//! Deltas now support both f32 and ternary strength values. Ternary strength
-//! provides discrete state transitions (+1, 0, -1) instead of continuous values,
-//! enabling BitNet-style quantized neural networks.
+//! All deltas use `Signal` for strength values. Signal encodes polarity (+/-/0)
+//! and magnitude (0-255) in 2 bytes, replacing the old f32 + optional TernaryWeight
+//! dual representation.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-
-use crate::ternary::TernaryWeight;
+use ternary_signal::Signal;
 
 /// A delta represents a single change to the Thermogram state
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,8 +26,8 @@ pub struct Delta {
     /// Key being modified
     pub key: String,
 
-    /// New value (serialized as bytes)
-    pub value: Vec<u8>,
+    /// New value (vector of Signals)
+    pub value: Vec<Signal>,
 
     /// Metadata about the change
     pub metadata: DeltaMetadata,
@@ -65,64 +64,33 @@ pub struct DeltaMetadata {
     /// Source of the delta (e.g., "llm_mining", "user_edit")
     pub source: String,
 
-    /// Confidence or strength of this update (0.0 - 1.0)
-    /// Used for continuous-valued weights (legacy/compatibility)
-    pub strength: f32,
-
-    /// Ternary strength for quantized weights (+1, 0, -1)
-    /// When present, this takes precedence over f32 strength
-    #[serde(default)]
-    pub ternary_strength: Option<TernaryWeight>,
+    /// Strength of this update — Signal encodes polarity + magnitude
+    pub strength: Signal,
 
     /// Optional: Number of observations contributing to this update
     pub observation_count: Option<usize>,
 
-    /// Custom metadata
-    pub custom: serde_json::Value,
-}
-
-impl DeltaMetadata {
-    /// Check if this delta uses ternary strength
-    pub fn is_ternary(&self) -> bool {
-        self.ternary_strength.is_some()
-    }
-
-    /// Get effective strength as f32 (ternary converts to -1.0, 0.0, or 1.0)
-    pub fn effective_strength(&self) -> f32 {
-        if let Some(t) = self.ternary_strength {
-            t.to_f32()
-        } else {
-            self.strength
-        }
-    }
-
-    /// Get ternary strength (quantizes f32 if not already ternary)
-    pub fn to_ternary(&self, threshold: f32) -> TernaryWeight {
-        if let Some(t) = self.ternary_strength {
-            t
-        } else {
-            TernaryWeight::from_f32(self.strength, threshold)
-        }
-    }
+    /// Custom metadata (raw bytes, None by default)
+    #[serde(default)]
+    pub custom: Option<Vec<u8>>,
 }
 
 impl Delta {
-    /// Create a new delta with f32 strength (legacy/continuous)
+    /// Create a new delta
     pub fn new(
         delta_type: DeltaType,
         key: String,
-        value: Vec<u8>,
+        value: Vec<Signal>,
         source: String,
-        strength: f32,
+        strength: Signal,
         prev_hash: Option<String>,
     ) -> Self {
         let metadata = DeltaMetadata {
             timestamp: Utc::now(),
             source,
             strength,
-            ternary_strength: None,
             observation_count: None,
-            custom: serde_json::Value::Null,
+            custom: None,
         };
 
         let mut delta = Self {
@@ -139,46 +107,14 @@ impl Delta {
         delta
     }
 
-    /// Create a new delta with ternary strength (+1, 0, -1)
-    pub fn new_ternary(
-        delta_type: DeltaType,
-        key: String,
-        value: Vec<u8>,
-        source: String,
-        ternary_strength: TernaryWeight,
-        prev_hash: Option<String>,
-    ) -> Self {
-        let metadata = DeltaMetadata {
-            timestamp: Utc::now(),
-            source,
-            strength: ternary_strength.to_f32(), // For backward compatibility
-            ternary_strength: Some(ternary_strength),
-            observation_count: None,
-            custom: serde_json::Value::Null,
-        };
-
-        let mut delta = Self {
-            id: uuid::Uuid::new_v4().to_string(),
-            delta_type,
-            key,
-            value,
-            metadata,
-            prev_hash,
-            hash: String::new(),
-        };
-
-        delta.hash = delta.compute_hash();
-        delta
-    }
-
-    /// Create a CREATE delta
-    pub fn create(key: impl Into<String>, value: Vec<u8>, source: impl Into<String>) -> Self {
+    /// Create a CREATE delta (default strength = max positive)
+    pub fn create(key: impl Into<String>, value: Vec<Signal>, source: impl Into<String>) -> Self {
         Self::new(
             DeltaType::Create,
             key.into(),
             value,
             source.into(),
-            1.0,
+            Signal::MAX_POSITIVE,
             None,
         )
     }
@@ -186,9 +122,9 @@ impl Delta {
     /// Create an UPDATE delta
     pub fn update(
         key: impl Into<String>,
-        value: Vec<u8>,
+        value: Vec<Signal>,
         source: impl Into<String>,
-        strength: f32,
+        strength: Signal,
         prev_hash: Option<String>,
     ) -> Self {
         Self::new(
@@ -208,7 +144,7 @@ impl Delta {
             key.into(),
             vec![],
             source.into(),
-            1.0,
+            Signal::MAX_POSITIVE,
             prev_hash,
         )
     }
@@ -216,9 +152,9 @@ impl Delta {
     /// Create a MERGE delta (incremental update)
     pub fn merge(
         key: impl Into<String>,
-        value: Vec<u8>,
+        value: Vec<Signal>,
         source: impl Into<String>,
-        strength: f32,
+        strength: Signal,
         prev_hash: Option<String>,
     ) -> Self {
         Self::new(
@@ -231,73 +167,6 @@ impl Delta {
         )
     }
 
-    // =========================================================================
-    // TERNARY CONSTRUCTORS - For quantized neural networks
-    // =========================================================================
-
-    /// Create a ternary CREATE delta
-    pub fn create_ternary(
-        key: impl Into<String>,
-        value: Vec<u8>,
-        source: impl Into<String>,
-        strength: TernaryWeight,
-    ) -> Self {
-        Self::new_ternary(
-            DeltaType::Create,
-            key.into(),
-            value,
-            source.into(),
-            strength,
-            None,
-        )
-    }
-
-    /// Create a ternary UPDATE delta
-    pub fn update_ternary(
-        key: impl Into<String>,
-        value: Vec<u8>,
-        source: impl Into<String>,
-        strength: TernaryWeight,
-        prev_hash: Option<String>,
-    ) -> Self {
-        Self::new_ternary(
-            DeltaType::Update,
-            key.into(),
-            value,
-            source.into(),
-            strength,
-            prev_hash,
-        )
-    }
-
-    /// Create a ternary MERGE delta (STDP-style weight update)
-    pub fn merge_ternary(
-        key: impl Into<String>,
-        value: Vec<u8>,
-        source: impl Into<String>,
-        strength: TernaryWeight,
-        prev_hash: Option<String>,
-    ) -> Self {
-        Self::new_ternary(
-            DeltaType::Merge,
-            key.into(),
-            value,
-            source.into(),
-            strength,
-            prev_hash,
-        )
-    }
-
-    /// Check if this delta uses ternary strength
-    pub fn is_ternary(&self) -> bool {
-        self.metadata.is_ternary()
-    }
-
-    /// Get the effective strength as f32
-    pub fn effective_strength(&self) -> f32 {
-        self.metadata.effective_strength()
-    }
-
     /// Compute hash of this delta
     pub fn compute_hash(&self) -> String {
         let mut hasher = Sha256::new();
@@ -306,10 +175,17 @@ impl Delta {
         hasher.update(self.id.as_bytes());
         hasher.update(&[self.delta_type as u8]);
         hasher.update(self.key.as_bytes());
-        hasher.update(&self.value);
+
+        // Hash value signals (2 bytes each: polarity + magnitude)
+        for signal in &self.value {
+            hasher.update(&[signal.polarity as u8, signal.magnitude]);
+        }
+
         hasher.update(self.metadata.timestamp.to_rfc3339().as_bytes());
         hasher.update(self.metadata.source.as_bytes());
-        hasher.update(&self.metadata.strength.to_le_bytes());
+
+        // Hash strength as 2 bytes
+        hasher.update(&[self.metadata.strength.polarity as u8, self.metadata.strength.magnitude]);
 
         if let Some(ref prev) = self.prev_hash {
             hasher.update(prev.as_bytes());
@@ -338,22 +214,23 @@ mod tests {
 
     #[test]
     fn test_delta_creation() {
-        let delta = Delta::create("test_key", b"test_value".to_vec(), "test_source");
+        let value = vec![Signal::positive(128), Signal::negative(64)];
+        let delta = Delta::create("test_key", value.clone(), "test_source");
 
         assert_eq!(delta.delta_type, DeltaType::Create);
         assert_eq!(delta.key, "test_key");
-        assert_eq!(delta.value, b"test_value");
+        assert_eq!(delta.value, value);
         assert!(delta.verify_hash());
     }
 
     #[test]
     fn test_delta_chain() {
-        let delta1 = Delta::create("key", b"value1".to_vec(), "source");
+        let delta1 = Delta::create("key", vec![Signal::positive(100)], "source");
         let delta2 = Delta::update(
             "key",
-            b"value2".to_vec(),
+            vec![Signal::positive(200)],
             "source",
-            0.8,
+            Signal::positive(204), // ~0.8
             Some(delta1.hash.clone()),
         );
 
@@ -362,7 +239,7 @@ mod tests {
 
     #[test]
     fn test_hash_stability() {
-        let delta = Delta::create("key", b"value".to_vec(), "source");
+        let delta = Delta::create("key", vec![Signal::positive(100)], "source");
         let hash1 = delta.hash.clone();
         let hash2 = delta.compute_hash();
 

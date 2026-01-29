@@ -30,6 +30,7 @@ use crate::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use ternary_signal::Signal;
 
 /// Colony metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -633,7 +634,7 @@ impl ThermogramColony {
     }
 
     /// Reinforce an entry (strengthens, may promote)
-    pub fn reinforce(&mut self, key: &str, amount: f32) -> bool {
+    pub fn reinforce(&mut self, key: &str, amount: Signal) -> bool {
         // Find which member has the key
         let target_idx = if let Some(&idx) = self.key_locality.get(key) {
             idx
@@ -655,7 +656,7 @@ impl ThermogramColony {
     }
 
     /// Weaken an entry (may demote)
-    pub fn weaken(&mut self, key: &str, amount: f32) -> bool {
+    pub fn weaken(&mut self, key: &str, amount: Signal) -> bool {
         // Find which member has the key
         let target_idx = if let Some(&idx) = self.key_locality.get(key) {
             idx
@@ -731,9 +732,8 @@ mod tests {
 
         let entry = ConsolidatedEntry {
             key: "key1".to_string(),
-            value: vec![1, 2, 3],
-            strength: 0.8,
-            ternary_strength: None,
+            value: vec![Signal::positive(1), Signal::positive(2), Signal::positive(3)],
+            strength: Signal::positive(204), // ~0.8
             updated_at: Utc::now(),
             update_count: 1,
         };
@@ -742,7 +742,7 @@ mod tests {
 
         let read_entry = colony.read("key1");
         assert!(read_entry.is_some());
-        assert_eq!(read_entry.unwrap().value, vec![1, 2, 3]);
+        assert_eq!(read_entry.unwrap().value, vec![Signal::positive(1), Signal::positive(2), Signal::positive(3)]);
     }
 
     #[test]
@@ -754,9 +754,8 @@ mod tests {
         for i in 0..10 {
             let entry = ConsolidatedEntry {
                 key: format!("group_a_{}", i),
-                value: vec![i],
-                strength: 0.8,
-                ternary_strength: None,
+                value: vec![Signal::positive(i)],
+                strength: Signal::positive(204), // ~0.8
                 updated_at: Utc::now(),
                 update_count: 1,
             };
@@ -789,9 +788,8 @@ mod tests {
         for i in 0..10 {
             let entry = ConsolidatedEntry {
                 key: format!("key_{}", i),
-                value: vec![i],
-                strength: 0.8,
-                ternary_strength: None,
+                value: vec![Signal::positive(i)],
+                strength: Signal::positive(204), // ~0.8
                 updated_at: Utc::now(),
                 update_count: 5,
             };
@@ -810,9 +808,8 @@ mod tests {
 
         let entry = ConsolidatedEntry {
             key: "key1".to_string(),
-            value: vec![1, 2, 3],
-            strength: 0.5,
-            ternary_strength: None,
+            value: vec![Signal::positive(1), Signal::positive(2), Signal::positive(3)],
+            strength: Signal::positive(128), // ~0.5
             updated_at: Utc::now(),
             update_count: 1,
         };
@@ -820,11 +817,11 @@ mod tests {
         colony.write("key1", entry, ThermalState::Hot);
 
         // Reinforce
-        assert!(colony.reinforce("key1", 0.2));
+        assert!(colony.reinforce("key1", Signal::positive(51))); // ~0.2
         let read = colony.read("key1").unwrap();
-        assert!(read.strength > 0.5);
+        assert!(read.strength.magnitude > 128);
 
         // Weaken
-        assert!(colony.weaken("key1", 0.1));
+        assert!(colony.weaken("key1", Signal::positive(26))); // ~0.1
     }
 }

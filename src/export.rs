@@ -3,17 +3,16 @@
 //! Exports consolidated state to immutable Engram archives without deletion.
 //! Maintains full audit trail by including hash chain.
 //!
-//! ## Ternary Export Support
+//! ## Signal-Native Export
 //!
-//! Entries can now have ternary strength values (+1, 0, -1) for quantized
-//! neural network weights. The export format includes both f32 and optional
-//! ternary strength for backward compatibility.
+//! All strength values are Signal (polarity + magnitude). Export uses JSON
+//! representation for human-readable inspection.
 
 use crate::core::Thermogram;
 use crate::error::Result;
-use crate::ternary::TernaryWeight;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use ternary_signal::Signal;
 
 /// Export format for Engram archival
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,29 +37,10 @@ pub struct EngramExport {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngramEntry {
     pub key: String,
-    pub value: Vec<u8>,
-    /// Continuous strength (0.0-1.0) for backward compatibility
-    pub strength: f32,
-    /// Ternary strength (+1, 0, -1) for quantized weights
-    #[serde(default)]
-    pub ternary_strength: Option<TernaryWeight>,
+    pub value: Vec<Signal>,
+    /// Strength as Signal (polarity + magnitude)
+    pub strength: Signal,
     pub update_count: usize,
-}
-
-impl EngramEntry {
-    /// Check if this entry uses ternary strength
-    pub fn is_ternary(&self) -> bool {
-        self.ternary_strength.is_some()
-    }
-
-    /// Get effective strength as f32
-    pub fn effective_strength(&self) -> f32 {
-        if let Some(t) = self.ternary_strength {
-            t.to_f32()
-        } else {
-            self.strength
-        }
-    }
 }
 
 /// Delta in exported history
@@ -69,11 +49,8 @@ pub struct EngramDelta {
     pub timestamp: String,
     pub delta_type: String,
     pub key: String,
-    /// Continuous strength for backward compatibility
-    pub strength: f32,
-    /// Ternary strength for quantized deltas
-    #[serde(default)]
-    pub ternary_strength: Option<TernaryWeight>,
+    /// Strength as Signal
+    pub strength: Signal,
     pub hash: String,
 }
 
@@ -105,7 +82,6 @@ impl Thermogram {
                 key: entry.key.clone(),
                 value: entry.value.clone(),
                 strength: entry.strength,
-                ternary_strength: entry.ternary_strength,
                 update_count: entry.update_count,
             })
             .collect();
@@ -115,7 +91,6 @@ impl Thermogram {
             key: entry.key.clone(),
             value: entry.value.clone(),
             strength: entry.strength,
-            ternary_strength: entry.ternary_strength,
             update_count: entry.update_count,
         }));
 
@@ -129,7 +104,6 @@ impl Thermogram {
                 delta_type: format!("{:?}", delta.delta_type),
                 key: delta.key.clone(),
                 strength: delta.metadata.strength,
-                ternary_strength: delta.metadata.ternary_strength,
                 hash: delta.hash.clone(),
             })
             .collect();
@@ -231,7 +205,7 @@ mod tests {
 
         let mut thermo = Thermogram::new("test", PlasticityRule::stdp_like());
 
-        let delta = Delta::create("key1", b"value1".to_vec(), "source");
+        let delta = Delta::create("key1", vec![Signal::positive(100)], "source");
         thermo.apply_delta(delta).unwrap();
 
         thermo.export_to_json(&path).unwrap();
@@ -246,7 +220,7 @@ mod tests {
     fn test_export_data_structure() {
         let mut thermo = Thermogram::new("test", PlasticityRule::stdp_like());
 
-        let delta = Delta::create("key1", b"value1".to_vec(), "source");
+        let delta = Delta::create("key1", vec![Signal::positive(100)], "source");
         thermo.apply_delta(delta).unwrap();
 
         let export = thermo.export_to_engram_data().unwrap();

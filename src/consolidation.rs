@@ -12,8 +12,8 @@
 
 use crate::delta::{Delta, DeltaType};
 use crate::plasticity::PlasticityRule;
-use crate::ternary::TernaryWeight;
 use crate::error::Result;
+use ternary_signal::Signal;
 use chrono::{DateTime, Utc, Duration};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -125,16 +125,11 @@ pub struct ConsolidatedEntry {
     /// Key
     pub key: String,
 
-    /// Consolidated value
-    pub value: Vec<u8>,
+    /// Consolidated value (ternary signal data)
+    pub value: Vec<Signal>,
 
-    /// Current strength (after plasticity applied) - continuous value
-    pub strength: f32,
-
-    /// Ternary strength for quantized weights (+1, 0, -1)
-    /// When present, this takes precedence over f32 strength for pruning
-    #[serde(default)]
-    pub ternary_strength: Option<TernaryWeight>,
+    /// Current strength — Signal encodes polarity + magnitude
+    pub strength: Signal,
 
     /// Last updated timestamp
     pub updated_at: DateTime<Utc>,
@@ -144,29 +139,14 @@ pub struct ConsolidatedEntry {
 }
 
 impl ConsolidatedEntry {
-    /// Check if this entry uses ternary strength
-    pub fn is_ternary(&self) -> bool {
-        self.ternary_strength.is_some()
+    /// Get strength magnitude as u8 (0-255)
+    pub fn strength_magnitude(&self) -> u8 {
+        self.strength.magnitude
     }
 
-    /// Get effective strength as f32
-    pub fn effective_strength(&self) -> f32 {
-        if let Some(t) = self.ternary_strength {
-            t.to_f32()
-        } else {
-            self.strength
-        }
-    }
-
-    /// Check if this entry should be pruned
-    /// For ternary: only Zero weights are prunable
-    /// For continuous: uses threshold comparison
-    pub fn should_prune(&self, threshold: f32) -> bool {
-        if let Some(t) = self.ternary_strength {
-            t == TernaryWeight::Zero
-        } else {
-            self.strength < threshold
-        }
+    /// Check if this entry should be pruned (strength below threshold magnitude)
+    pub fn should_prune(&self, threshold: &Signal) -> bool {
+        self.strength.magnitude < threshold.magnitude
     }
 }
 
@@ -194,9 +174,8 @@ pub struct ConsolidationResult {
 
 /// Consolidate deltas into clean state
 ///
-/// Handles both continuous (f32) and ternary weights. When a delta has
-/// ternary_strength set, uses discrete state transitions instead of
-/// continuous plasticity updates.
+/// Applies accumulated deltas using Signal-native strength values.
+/// Plasticity updates operate on Signal magnitudes.
 pub fn consolidate(
     dirty_deltas: &[Delta],
     clean_state: &HashMap<String, ConsolidatedEntry>,
@@ -218,45 +197,18 @@ pub fn consolidate(
         match delta.delta_type {
             DeltaType::Create | DeltaType::Update => {
                 if let Some(existing) = new_state.get_mut(&delta.key) {
-                    // Update existing entry
-                    if delta.is_ternary() {
-                        // Ternary update: use discrete state transitions
-                        let current_ternary = existing
-                            .ternary_strength
-                            .unwrap_or(TernaryWeight::from_f32(existing.strength, 0.3));
-                        let observed_ternary = delta.metadata.ternary_strength.unwrap();
+                    // Update existing entry using plasticity rule
+                    let time_delta = delta
+                        .metadata
+                        .timestamp
+                        .signed_duration_since(existing.updated_at)
+                        .num_seconds() as f64;
 
-                        // Use observation count as confidence proxy
-                        let confidence = delta
-                            .metadata
-                            .observation_count
-                            .map(|c| (c as f32 / 10.0).min(1.0))
-                            .unwrap_or(0.5);
-
-                        let new_ternary = plasticity_rule.apply_ternary_update(
-                            current_ternary,
-                            observed_ternary,
-                            confidence,
-                        );
-
-                        existing.ternary_strength = Some(new_ternary);
-                        existing.strength = new_ternary.to_f32();
-                    } else {
-                        // Continuous update: use traditional plasticity
-                        let time_delta = delta
-                            .metadata
-                            .timestamp
-                            .signed_duration_since(existing.updated_at)
-                            .num_seconds() as f64;
-
-                        let new_strength = plasticity_rule.apply_update(
-                            existing.strength,
-                            delta.metadata.strength,
-                            time_delta,
-                        );
-
-                        existing.strength = new_strength;
-                    }
+                    existing.strength = plasticity_rule.apply_update(
+                        existing.strength,
+                        delta.metadata.strength,
+                        time_delta,
+                    );
 
                     existing.value = delta.value.clone();
                     existing.updated_at = delta.metadata.timestamp;
@@ -269,7 +221,6 @@ pub fn consolidate(
                             key: delta.key.clone(),
                             value: delta.value.clone(),
                             strength: delta.metadata.strength,
-                            ternary_strength: delta.metadata.ternary_strength,
                             updated_at: delta.metadata.timestamp,
                             update_count: 1,
                         },
@@ -282,39 +233,18 @@ pub fn consolidate(
             }
 
             DeltaType::Merge => {
-                // Merge operation - combine with existing
                 if let Some(existing) = new_state.get_mut(&delta.key) {
-                    if delta.is_ternary() {
-                        // Ternary merge: use majority voting
-                        let current_ternary = existing
-                            .ternary_strength
-                            .unwrap_or(TernaryWeight::from_f32(existing.strength, 0.3));
-                        let observed_ternary = delta.metadata.ternary_strength.unwrap();
+                    let time_delta = delta
+                        .metadata
+                        .timestamp
+                        .signed_duration_since(existing.updated_at)
+                        .num_seconds() as f64;
 
-                        // For merge, collect both weights and vote
-                        let merged = PlasticityRule::ternary_majority_vote(&[
-                            current_ternary,
-                            observed_ternary,
-                        ]);
-
-                        existing.ternary_strength = Some(merged);
-                        existing.strength = merged.to_f32();
-                    } else {
-                        // Continuous merge
-                        let time_delta = delta
-                            .metadata
-                            .timestamp
-                            .signed_duration_since(existing.updated_at)
-                            .num_seconds() as f64;
-
-                        let new_strength = plasticity_rule.apply_update(
-                            existing.strength,
-                            delta.metadata.strength,
-                            time_delta,
-                        );
-
-                        existing.strength = new_strength;
-                    }
+                    existing.strength = plasticity_rule.apply_update(
+                        existing.strength,
+                        delta.metadata.strength,
+                        time_delta,
+                    );
 
                     existing.updated_at = delta.metadata.timestamp;
                     existing.update_count += 1;
@@ -328,8 +258,7 @@ pub fn consolidate(
     if policy.enable_pruning {
         let before_count = new_state.len();
         new_state.retain(|_, entry| {
-            // Use entry's own should_prune method which handles ternary
-            !entry.should_prune(plasticity_rule.prune_threshold)
+            !entry.should_prune(&plasticity_rule.prune_threshold)
         });
         stats.entries_pruned = before_count - new_state.len();
     }
@@ -363,7 +292,7 @@ mod tests {
     #[test]
     fn test_consolidate_create() {
         let deltas = vec![
-            Delta::create("key1", b"value1".to_vec(), "source"),
+            Delta::create("key1", vec![Signal::positive(100)], "source"),
         ];
 
         let clean_state = HashMap::new();
@@ -384,16 +313,15 @@ mod tests {
             "key1".to_string(),
             ConsolidatedEntry {
                 key: "key1".to_string(),
-                value: b"old_value".to_vec(),
-                strength: 0.5,
-                ternary_strength: None,
+                value: vec![Signal::positive(50)],
+                strength: Signal::positive(128), // ~0.5
                 updated_at: Utc::now(),
                 update_count: 1,
             },
         );
 
         let deltas = vec![
-            Delta::update("key1", b"new_value".to_vec(), "source", 0.8, None),
+            Delta::update("key1", vec![Signal::positive(200)], "source", Signal::positive(204), None),
         ];
 
         let plasticity = PlasticityRule::stdp_like();
@@ -402,8 +330,8 @@ mod tests {
         let (new_state, _) = consolidate(&deltas, &clean_state, &plasticity, &policy).unwrap();
 
         let entry = new_state.get("key1").unwrap();
-        assert_eq!(entry.value, b"new_value");
-        assert!(entry.strength > 0.5); // Should have strengthened
+        assert_eq!(entry.value, vec![Signal::positive(200)]);
+        assert!(entry.strength.magnitude > 128); // Should have strengthened
     }
 
     #[test]
@@ -413,9 +341,8 @@ mod tests {
             "weak_key".to_string(),
             ConsolidatedEntry {
                 key: "weak_key".to_string(),
-                value: b"value".to_vec(),
-                strength: 0.05, // Below prune threshold
-                ternary_strength: None,
+                value: vec![Signal::positive(10)],
+                strength: Signal::positive(13), // Below prune threshold (~0.1 = 26)
                 updated_at: Utc::now(),
                 update_count: 1,
             },
